@@ -197,6 +197,9 @@ def run(
         ),
     ),
     goal: Optional[str] = typer.Option(None, "--goal", "-g", help="Natural language goal (overrides stages)."),
+    auto: bool = typer.Option(False, "--auto", help="Enable autonomous mode (full loop with reflection)."),
+    semi: bool = typer.Option(False, "--semi", help="Semi-autonomous: approve before each application."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip all approval gates (use with --auto)."),
     min_score: int = typer.Option(7, "--min-score", help="Minimum fit score for tailor/letter stages."),
     workers: int = typer.Option(1, "--workers", "-w", help="Parallel threads for search/details stages."),
     stream: bool = typer.Option(False, "--stream", help="Run stages concurrently (streaming mode)."),
@@ -219,22 +222,28 @@ def run(
     if goal:
         from joborion.agent.orchestrator import Orchestrator
 
-        orch = Orchestrator(goal=goal, max_cost=5.0)
-        result = orch.execute(dry_run=dry_run)
+        orch = Orchestrator(goal=goal, max_cost=5.0, auto=auto, yes=yes, semi=semi)
 
-        if dry_run:
-            console.print("\n[bold]Execution Plan[/bold]\n")
-            console.print(f"Goal: {goal}\n")
-            for i, desc in enumerate(result["plan"], 1):
-                console.print(f"  {i}. {desc}")
-            console.print()
+        if auto:
+            # Autonomous mode: full loop
+            result = orch.execute_autonomous()
+            console.print(result.get("report", ""))
         else:
-            console.print("\n[bold]Pipeline completed![/bold]")
-            console.print(f"Status: {result['status']}")
-            console.print(f"Cost: ${result['total_cost']:.4f}")
-            if result["errors"]:
-                console.print(f"[red]Errors: {len(result['errors'])}[/red]")
-            console.print()
+            result = orch.execute(dry_run=dry_run)
+
+            if dry_run:
+                console.print("\n[bold]Execution Plan[/bold]\n")
+                console.print(f"Goal: {goal}\n")
+                for i, desc in enumerate(result["plan"], 1):
+                    console.print(f"  {i}. {desc}")
+                console.print()
+            else:
+                console.print("\n[bold]Pipeline completed![/bold]")
+                console.print(f"Status: {result['status']}")
+                console.print(f"Cost: ${result['total_cost']:.4f}")
+                if result["errors"]:
+                    console.print(f"[red]Errors: {len(result['errors'])}[/red]")
+                console.print()
     else:
         # Legacy mode: explicit stages
         from joborion.pipeline import run_pipeline
