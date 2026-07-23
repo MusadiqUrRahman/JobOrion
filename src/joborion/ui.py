@@ -48,19 +48,22 @@ STAGE_EMOJI = {
 }
 
 
+BANNER_TEXT = "JOBORION"
+
+
+def _render_banner() -> str:
+    try:
+        import pyfiglet
+        return pyfiglet.figlet_format(BANNER_TEXT, font="doom").rstrip()
+    except Exception:
+        return f"  {BANNER_TEXT}"
+
+
 def print_banner() -> None:
     """Print the main application banner."""
-    banner = """
-[bold bright_cyan]
-     ██╗ ██████╗ ██████╗ ██╗   ██╗███████╗███████╗████████╗
-     ██║██╔═══██╗██╔══██╗╚██╗ ██╔╝██╔════╝██╔════╝╚══██╔══╝
-     ██║██║   ██║██████╔╝ ╚████╔╝ █████╗  ███████╗   ██║
-██   ██║██║   ██║██╔══██╗  ╚██╔╝  ██╔══╝  ╚════██║   ██║
-╚█████╔╝╚██████╔╝██║  ██║   ██║   ███████╗███████║   ██║
- ╚════╝  ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝╚══════╝   ╚═╝
-[/bold bright_cyan]
-[dim]AI-Powered Job Application Pipeline[/dim]"""
-    console.print(banner)
+    art = _render_banner()
+    console.print(f"[bold bright_cyan]{art}[/bold bright_cyan]")
+    console.print("[dim]AI-Powered Job Application Pipeline[/dim]")
 
 
 def print_stage_header(stage: str, description: str) -> None:
