@@ -6,10 +6,14 @@ import logging
 from typing import Optional
 
 import typer
-from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
+from rich import box
 
-from joborion import __version__
+from joborion.ui import (
+    console, print_banner, print_success, print_warning, make_stats_table, make_plan_table, print_completed,
+    print_reflection_card,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -19,11 +23,10 @@ logging.basicConfig(
 
 app = typer.Typer(
     name="joborion",
-    help="AI-powered end-to-end job application pipeline.",
+    help="[bold bright cyan]AI-powered end-to-end job application pipeline[/bold bright cyan]",
     no_args_is_help=True,
+    rich_markup_mode="rich",
 )
-console = Console()
-log = logging.getLogger(__name__)
 
 # Valid pipeline stages (in execution order)
 VALID_STAGES = ("search", "details", "evaluate", "tailor", "letter", "export")
@@ -45,7 +48,7 @@ def _bootstrap() -> None:
 
 def _version_callback(value: bool) -> None:
     if value:
-        console.print(f"[bold]joborion[/bold] {__version__}")
+        print_banner()
         raise typer.Exit()
 
 
@@ -62,7 +65,7 @@ def main(
         is_eager=True,
     ),
 ) -> None:
-    """JobOrion — AI-powered end-to-end job application pipeline."""
+    """[bold bright cyan]JobOrion[/bold bright cyan] — AI-powered job application pipeline."""
 
 
 @app.command()
@@ -75,7 +78,7 @@ def init() -> None:
 
 @app.command()
 def plan(
-    goal: str = typer.Argument(..., help="Your goal in plain language (e.g., 'Find 10 remote Python jobs')"),
+    goal: str = typer.Argument(..., help="Your goal in plain language"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show plan without executing."),
     max_cost: float = typer.Option(5.0, "--max-cost", help="Maximum budget in USD."),
 ) -> None:
@@ -86,21 +89,36 @@ def plan(
 
     if dry_run:
         plan_result = orch.plan()
-        console.print("\n[bold]Execution Plan[/bold]\n")
-        console.print(f"Goal: {goal}\n")
-        console.print(f"Estimated cost: ${plan_result.total_cost:.4f}")
-        console.print(f"Estimated duration: {plan_result.total_duration_ms / 1000:.1f}s\n")
-        for i, step in enumerate(plan_result.steps, 1):
-            console.print(f"  {i}. {step.tool}: {step.description}")
+        console.print()
+        console.print(Panel(
+            f"[bold bright cyan]{goal}[/bold cyan]",
+            title="[bold]🎯 Goal[/bold]",
+            border_style="cyan",
+            padding=(0, 1),
+        ))
+
+        steps_data = [
+            {
+                "tool": s.tool,
+                "description": s.description,
+                "cost_estimate": s.cost_estimate,
+            }
+            for s in plan_result.steps
+        ]
+        table = make_plan_table(steps_data)
+        console.print(table)
+
+        console.print()
+        console.print(f"  [bold]Estimated cost:[/bold] [yellow]${plan_result.total_cost:.4f}[/yellow]")
+        console.print(f"  [bold]Estimated time:[/bold] [cyan]{plan_result.total_duration_ms / 1000:.1f}s[/cyan]")
         console.print()
     else:
         result = orch.execute()
-        console.print("\n[bold]Pipeline completed![/bold]")
-        console.print(f"Status: {result['status']}")
-        console.print(f"Cost: ${result['total_cost']:.4f}")
-        if result["errors"]:
-            console.print(f"[red]Errors: {len(result['errors'])}[/red]")
-        console.print()
+        print_completed(
+            "Pipeline completed!",
+            cost=result["total_cost"],
+            errors=len(result.get("errors", [])),
+        )
 
 
 @app.command()
@@ -119,101 +137,41 @@ def reflect(
     reflector = Reflector(conn)
 
     if run_id:
-        # Analyze specific run
         result = reflector.analyze_run(run_id)
-        ref_id = store_reflection(result)
-        _print_reflection(result, ref_id)
+        ref_id = store_reflection(result, conn=conn)
+        print_reflection_card(result, ref_id)
     else:
-        # Analyze last N runs
         runs = get_recent_runs(n=last)
         if not runs:
-            console.print("[yellow]No runs found to analyze.[/yellow]")
+            console.print(Panel(
+                "[yellow]No runs found to analyze.[/yellow]",
+                border_style="yellow",
+            ))
             return
 
         for run in runs:
             rid = run.get("run_id", "")
             result = reflector.analyze_run(rid)
-            ref_id = store_reflection(result)
-            _print_reflection(result, ref_id)
+            ref_id = store_reflection(result, conn=conn)
+            print_reflection_card(result, ref_id)
             console.print()
-
-
-def _print_reflection(result: dict, ref_id: str) -> None:
-    """Print a reflection record in a formatted table."""
-    from rich.panel import Panel
-
-    rating = result["overall_rating"]
-    color = {"good": "green", "ok": "yellow", "poor": "red"}.get(rating, "white")
-
-    console.print()
-    console.print(Panel.fit(
-        f"[bold]Reflection[/bold] ({ref_id})\n"
-        f"Run: {result.get('run_id', '?')}",
-        border_style=color,
-    ))
-
-    # Rating
-    console.print(f"  Rating: [{color}]{rating.upper()}[/{color}]")
-
-    # What went well
-    if result.get("what_went_well"):
-        console.print("\n  [bold green]What went well:[/bold green]")
-        for item in result["what_went_well"]:
-            console.print(f"    + {item}")
-
-    # What failed
-    if result.get("what_failed"):
-        console.print("\n  [bold red]What failed:[/bold red]")
-        for item in result["what_failed"]:
-            console.print(f"    - {item}")
-
-    # Recommendations
-    if result.get("recommendations"):
-        console.print("\n  [bold cyan]Recommendations:[/bold cyan]")
-        for i, rec in enumerate(result["recommendations"], 1):
-            console.print(f"    {i}. {rec}")
-
-    # Score calibration
-    cal = result.get("scoring_calibration", {})
-    if cal.get("avg_score"):
-        console.print("\n  [bold]Score calibration:[/bold]")
-        console.print(f"    Avg: {cal['avg_score']}, Range: {cal.get('score_range', '?')}")
-        console.print(f"    {cal.get('assessment', '')}")
-
-    # Cost
-    cost = result.get("cost_analysis", {})
-    if cost.get("total", 0) > 0:
-        console.print(f"\n  [bold]Cost:[/bold] ${cost['total']:.4f}")
 
 
 @app.command()
 def run(
     stages: Optional[list[str]] = typer.Argument(
         None,
-        help=(
-            "Pipeline stages to run. "
-            f"Valid: {', '.join(VALID_STAGES)}, all. "
-            "Defaults to 'all' if omitted."
-        ),
+        help=f"Pipeline stages: {', '.join(VALID_STAGES)}, all",
     ),
-    goal: Optional[str] = typer.Option(None, "--goal", "-g", help="Natural language goal (overrides stages)."),
-    auto: bool = typer.Option(False, "--auto", help="Enable autonomous mode (full loop with reflection)."),
+    goal: Optional[str] = typer.Option(None, "--goal", "-g", help="Natural language goal."),
+    auto: bool = typer.Option(False, "--auto", help="Autonomous mode (full loop)."),
     semi: bool = typer.Option(False, "--semi", help="Semi-autonomous: approve before each application."),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Skip all approval gates (use with --auto)."),
-    min_score: int = typer.Option(7, "--min-score", help="Minimum fit score for tailor/letter stages."),
-    workers: int = typer.Option(1, "--workers", "-w", help="Parallel threads for search/details stages."),
-    stream: bool = typer.Option(False, "--stream", help="Run stages concurrently (streaming mode)."),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Preview stages without executing."),
-    validation: str = typer.Option(
-        "normal",
-        "--validation",
-        help=(
-            "Validation strictness for tailor/letter stages. "
-            "strict: banned words = errors, judge must pass. "
-            "normal: banned words = warnings only (default, recommended for Gemini free tier). "
-            "lenient: banned words ignored, LLM judge skipped (fastest, fewest API calls)."
-        ),
-    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip all approval gates."),
+    min_score: int = typer.Option(7, "--min-score", help="Minimum fit score."),
+    workers: int = typer.Option(1, "--workers", "-w", help="Parallel threads."),
+    stream: bool = typer.Option(False, "--stream", help="Concurrent streaming mode."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview without executing."),
+    validation: str = typer.Option("normal", "--validation", help="Validation strictness."),
 ) -> None:
     """Run pipeline stages: search, details, evaluate, tailor, letter, export."""
     _bootstrap()
@@ -225,83 +183,102 @@ def run(
         orch = Orchestrator(goal=goal, max_cost=5.0, auto=auto, yes=yes, semi=semi)
 
         if auto:
-            # Autonomous mode: full loop
             result = orch.execute_autonomous()
-            console.print(result.get("report", ""))
+            report = result.get("report", "")
+            console.print(Panel(report, border_style="green", padding=(1, 2)))
         else:
-            result = orch.execute(dry_run=dry_run)
-
             if dry_run:
-                console.print("\n[bold]Execution Plan[/bold]\n")
-                console.print(f"Goal: {goal}\n")
-                for i, desc in enumerate(result["plan"], 1):
-                    console.print(f"  {i}. {desc}")
+                plan_result = orch.plan()
+                console.print()
+                console.print(Panel(
+                    f"[bold bright cyan]{goal}[/bold cyan]",
+                    title="[bold]🎯 Goal[/bold]",
+                    border_style="cyan",
+                ))
+
+                steps_data = [
+                    {"tool": s.tool, "description": s.description, "cost_estimate": s.cost_estimate}
+                    for s in plan_result.steps
+                ]
+                table = make_plan_table(steps_data)
+                console.print(table)
                 console.print()
             else:
-                console.print("\n[bold]Pipeline completed![/bold]")
-                console.print(f"Status: {result['status']}")
-                console.print(f"Cost: ${result['total_cost']:.4f}")
-                if result["errors"]:
-                    console.print(f"[red]Errors: {len(result['errors'])}[/red]")
-                console.print()
-    else:
-        # Legacy mode: explicit stages
-        from joborion.pipeline import run_pipeline
-
-        stage_list = stages if stages else ["all"]
-
-        # Validate stage names
-        for s in stage_list:
-            if s != "all" and s not in VALID_STAGES:
-                console.print(
-                    f"[red]Unknown stage:[/red] '{s}'. "
-                    f"Valid stages: {', '.join(VALID_STAGES)}, all"
+                result = orch.execute()
+                print_completed(
+                    "Pipeline completed!",
+                    cost=result["total_cost"],
+                    errors=len(result.get("errors", [])),
                 )
-                raise typer.Exit(code=1)
+        return
 
-        # Gate AI stages behind Tier 2
-        llm_stages = {"evaluate", "tailor", "letter"}
-        if any(s in stage_list for s in llm_stages) or "all" in stage_list:
-            from joborion.config import check_tier
-            check_tier(2, "AI scoring/tailoring")
+    # Legacy mode: explicit stages
+    from joborion.pipeline import run_pipeline
 
-        # Validate the --validation flag value
-        valid_modes = ("strict", "normal", "lenient")
-        if validation not in valid_modes:
-            console.print(
-                f"[red]Invalid --validation value:[/red] '{validation}'. "
-                f"Choose from: {', '.join(valid_modes)}"
-            )
+    stage_list = stages if stages else ["all"]
+
+    # Validate stage names
+    for s in stage_list:
+        if s != "all" and s not in VALID_STAGES:
+            console.print(Panel(
+                f"[red]Unknown stage:[/red] '{s}'\n"
+                f"Valid stages: {', '.join(VALID_STAGES)}, all",
+                border_style="red",
+            ))
             raise typer.Exit(code=1)
 
-        result = run_pipeline(
-            stages=stage_list,
-            min_score=min_score,
-            dry_run=dry_run,
-            stream=stream,
-            workers=workers,
-            validation_mode=validation,
-        )
+    # Gate AI stages behind Tier 2
+    llm_stages = {"evaluate", "tailor", "letter"}
+    if any(s in stage_list for s in llm_stages) or "all" in stage_list:
+        from joborion.config import check_tier
+        check_tier(2, "AI scoring/tailoring")
 
-        if result.get("errors"):
-            raise typer.Exit(code=1)
+    # Validate --validation flag
+    valid_modes = ("strict", "normal", "lenient")
+    if validation not in valid_modes:
+        console.print(Panel(
+            f"[red]Invalid --validation:[/red] '{validation}'\n"
+            f"Choose from: {', '.join(valid_modes)}",
+            border_style="red",
+        ))
+        raise typer.Exit(code=1)
+
+    # Show what we're about to do
+    console.print()
+    console.print(Panel(
+        f"[bold]Running:[/bold] {' → '.join(stage_list)}",
+        border_style="cyan",
+        padding=(0, 1),
+    ))
+
+    result = run_pipeline(
+        stages=stage_list,
+        min_score=min_score,
+        dry_run=dry_run,
+        stream=stream,
+        workers=workers,
+        validation_mode=validation,
+    )
+
+    if result.get("errors"):
+        raise typer.Exit(code=1)
 
 
 @app.command()
 def apply(
-    limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Max applications to submit."),
-    workers: int = typer.Option(1, "--workers", "-w", help="Number of parallel browser workers."),
-    min_score: int = typer.Option(7, "--min-score", help="Minimum fit score for job selection."),
-    model: str = typer.Option("haiku", "--model", "-m", help="Claude model name."),
-    continuous: bool = typer.Option(False, "--continuous", "-c", help="Run forever, polling for new jobs."),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Preview actions without submitting."),
-    headless: bool = typer.Option(False, "--headless", help="Run browsers in headless mode."),
-    url: Optional[str] = typer.Option(None, "--url", help="Apply to a specific job URL."),
-    gen: bool = typer.Option(False, "--gen", help="Generate prompt file for manual debugging instead of running."),
-    mark_applied: Optional[str] = typer.Option(None, "--mark-applied", help="Manually mark a job URL as applied."),
-    mark_failed: Optional[str] = typer.Option(None, "--mark-failed", help="Manually mark a job URL as failed (provide URL)."),
-    fail_reason: Optional[str] = typer.Option(None, "--fail-reason", help="Reason for --mark-failed."),
-    reset_failed: bool = typer.Option(False, "--reset-failed", help="Reset all failed jobs for retry."),
+    limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Max applications."),
+    workers: int = typer.Option(1, "--workers", "-w", help="Parallel workers."),
+    min_score: int = typer.Option(7, "--min-score", help="Minimum fit score."),
+    model: str = typer.Option("haiku", "--model", "-m", help="Claude model."),
+    continuous: bool = typer.Option(False, "--continuous", "-c", help="Run forever."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview without submitting."),
+    headless: bool = typer.Option(False, "--headless", help="Run browsers headless."),
+    url: Optional[str] = typer.Option(None, "--url", help="Apply to specific URL."),
+    gen: bool = typer.Option(False, "--gen", help="Generate prompt file instead of running."),
+    mark_applied: Optional[str] = typer.Option(None, "--mark-applied", help="Mark job as applied."),
+    mark_failed: Optional[str] = typer.Option(None, "--mark-failed", help="Mark job as failed."),
+    fail_reason: Optional[str] = typer.Option(None, "--fail-reason", help="Reason for failure."),
+    reset_failed: bool = typer.Option(False, "--reset-failed", help="Reset all failed jobs."),
 ) -> None:
     """Launch auto-apply to submit job applications."""
     _bootstrap()
@@ -309,85 +286,88 @@ def apply(
     from joborion.config import check_tier, PROFILE_PATH as _profile_path
     from joborion.database import get_connection
 
-    # --- Utility modes (no Chrome/Claude needed) ---
-
+    # Utility modes
     if mark_applied:
         from joborion.apply.runner import mark_job
         mark_job(mark_applied, "applied")
-        console.print(f"[green]Marked as applied:[/green] {mark_applied}")
+        print_success(f"Marked as applied: {mark_applied}")
         return
 
     if mark_failed:
         from joborion.apply.runner import mark_job
         mark_job(mark_failed, "failed", reason=fail_reason)
-        console.print(f"[yellow]Marked as failed:[/yellow] {mark_failed} ({fail_reason or 'manual'})")
+        print_warning(f"Marked as failed: {mark_failed} ({fail_reason or 'manual'})")
         return
 
     if reset_failed:
         from joborion.apply.runner import reset_failed as do_reset
         count = do_reset()
-        console.print(f"[green]Reset {count} failed job(s) for retry.[/green]")
+        print_success(f"Reset {count} failed job(s) for retry.")
         return
 
-    # --- Full apply mode ---
-
-    # Check 1: Tier 3 required (Claude Code CLI + Chrome)
+    # Full apply mode
     check_tier(3, "auto-apply")
 
-    # Check 2: Profile exists
     if not _profile_path.exists():
-        console.print(
+        console.print(Panel(
             "[red]Profile not found.[/red]\n"
-            "Run [bold]joborion init[/bold] to create your profile first."
-        )
+            "Run [bold]joborion init[/bold] to create your profile first.",
+            border_style="red",
+        ))
         raise typer.Exit(code=1)
 
-    # Check 3: Tailored resumes exist (skip for --gen with --url)
     if not (gen and url):
         conn = get_connection()
         ready = conn.execute(
             "SELECT COUNT(*) FROM jobs WHERE tailored_resume_path IS NOT NULL AND applied_at IS NULL"
         ).fetchone()[0]
         if ready == 0:
-            console.print(
+            console.print(Panel(
                 "[red]No tailored resumes ready.[/red]\n"
-                "Run [bold]joborion run evaluate tailor[/bold] first to prepare applications."
-            )
+                "Run [bold]joborion run evaluate tailor[/bold] first.",
+                border_style="red",
+            ))
             raise typer.Exit(code=1)
 
     if gen:
         from joborion.apply.runner import gen_prompt
         target = url or ""
         if not target:
-            console.print("[red]--gen requires --url to specify which job.[/red]")
+            console.print(Panel("[red]--gen requires --url[/red]", border_style="red"))
             raise typer.Exit(code=1)
         prompt_file = gen_prompt(target, min_score=min_score, model=model)
         if not prompt_file:
-            console.print("[red]No matching job found for that URL.[/red]")
+            console.print(Panel("[red]No matching job found.[/red]", border_style="red"))
             raise typer.Exit(code=1)
         mcp_path = _profile_path.parent / ".mcp-apply-0.json"
-        console.print(f"[green]Wrote prompt to:[/green] {prompt_file}")
-        console.print("\n[bold]Run manually:[/bold]")
-        console.print(
-            f"  claude --model {model} -p "
+        print_success(f"Wrote prompt to: {prompt_file}")
+        console.print()
+        console.print(Panel(
+            f"[bold]Run manually:[/bold]\n"
+            f"claude --model {model} -p "
             f"--mcp-config {mcp_path} "
-            f"--permission-mode bypassPermissions < {prompt_file}"
-        )
+            f"--permission-mode bypassPermissions < {prompt_file}",
+            border_style="cyan",
+        ))
         return
 
     from joborion.apply.runner import main as apply_main
 
     effective_limit = limit if limit is not None else (0 if continuous else 1)
 
-    console.print("\n[bold blue]Launching Auto-Apply[/bold blue]")
-    console.print(f"  Limit:    {'unlimited' if continuous else effective_limit}")
-    console.print(f"  Workers:  {workers}")
-    console.print(f"  Model:    {model}")
-    console.print(f"  Headless: {headless}")
-    console.print(f"  Dry run:  {dry_run}")
-    if url:
-        console.print(f"  Target:   {url}")
+    # Show launch banner
     console.print()
+    console.print(Panel(
+        f"[bold bright cyan]🚀 Launching Auto-Apply[/bold cyan]\n\n"
+        f"  [bold]Limit:[/bold]    {'unlimited' if continuous else effective_limit}\n"
+        f"  [bold]Workers:[/bold]  {workers}\n"
+        f"  [bold]Model:[/bold]    {model}\n"
+        f"  [bold]Headless:[/bold] {headless}\n"
+        f"  [bold]Dry run:[/bold]  {dry_run}"
+        + (f"\n  [bold]Target:[/bold]   {url}" if url else ""),
+        border_style="cyan",
+        padding=(1, 2),
+    ))
 
     apply_main(
         limit=effective_limit,
@@ -410,57 +390,59 @@ def status() -> None:
 
     stats = get_stats()
 
-    console.print("\n[bold]JobOrion Pipeline Status[/bold]\n")
+    console.print()
+    print_banner()
 
-    # Summary table
-    summary = Table(title="Pipeline Overview", show_header=True, header_style="bold cyan")
-    summary.add_column("Metric", style="bold")
-    summary.add_column("Count", justify="right")
-
-    summary.add_row("Total jobs discovered", str(stats["total"]))
-    summary.add_row("With full description", str(stats["with_description"]))
-    summary.add_row("Pending enrichment", str(stats["pending_detail"]))
-    summary.add_row("Enrichment errors", str(stats["detail_errors"]))
-    summary.add_row("Scored by LLM", str(stats["scored"]))
-    summary.add_row("Pending scoring", str(stats["unscored"]))
-    summary.add_row("Tailored resumes", str(stats["tailored"]))
-    summary.add_row("Pending tailoring (7+)", str(stats["untailored_eligible"]))
-    summary.add_row("Cover letters", str(stats["with_cover_letter"]))
-    summary.add_row("Ready to apply", str(stats["ready_to_apply"]))
-    summary.add_row("Applied", str(stats["applied"]))
-    summary.add_row("Apply errors", str(stats["apply_errors"]))
-
-    console.print(summary)
+    # Stats table
+    stats_table = make_stats_table(stats)
+    console.print(stats_table)
 
     # Score distribution
     if stats["score_distribution"]:
-        dist_table = Table(title="\nScore Distribution", show_header=True, header_style="bold yellow")
-        dist_table.add_column("Score", justify="center")
-        dist_table.add_column("Count", justify="right")
-        dist_table.add_column("Bar")
+        console.print()
+        dist_table = Table(
+            title="[bold bright yellow]Score Distribution[/bold bright yellow]",
+            box=box.ROUNDED,
+            show_header=True,
+            header_style="bold yellow",
+            border_style="bright yellow",
+        )
+        dist_table.add_column("Score", justify="center", width=6)
+        dist_table.add_column("Count", justify="right", width=6)
+        dist_table.add_column("Distribution", width=30)
 
         max_count = max(count for _, count in stats["score_distribution"]) or 1
         for score, count in stats["score_distribution"]:
-            bar_len = int(count / max_count * 30)
+            bar_len = int(count / max_count * 25)
             if score >= 7:
                 color = "green"
+                emoji = "🌟"
             elif score >= 5:
                 color = "yellow"
+                emoji = "⭐"
             else:
                 color = "red"
-            bar = f"[{color}]{'=' * bar_len}[/{color}]"
-            dist_table.add_row(str(score), str(count), bar)
+                emoji = "💔"
+            bar = f"[{color}]{'█' * bar_len}{'░' * (25 - bar_len)}[/{color}]"
+            dist_table.add_row(f"{emoji} {score}", str(count), bar)
 
         console.print(dist_table)
 
     # By site
     if stats["by_site"]:
-        site_table = Table(title="\nJobs by Source", show_header=True, header_style="bold magenta")
-        site_table.add_column("Site")
-        site_table.add_column("Count", justify="right")
+        console.print()
+        site_table = Table(
+            title="[bold bright magenta]Jobs by Source[/bold bright magenta]",
+            box=box.ROUNDED,
+            show_header=True,
+            header_style="bold magenta",
+            border_style="bright magenta",
+        )
+        site_table.add_column("Source", width=25)
+        site_table.add_column("Count", justify="right", width=8)
 
         for site, count in stats["by_site"]:
-            site_table.add_row(site or "Unknown", str(count))
+            site_table.add_row(f"🌐 {site or 'Unknown'}", str(count))
 
         console.print(site_table)
 
@@ -481,6 +463,7 @@ def dashboard() -> None:
 def doctor() -> None:
     """Check your setup and diagnose missing requirements."""
     import shutil
+    import os
     from joborion.config import (
         load_env, PROFILE_PATH, RESUME_PATH, RESUME_PDF_PATH,
         SEARCH_CONFIG_PATH, get_chrome_path,
@@ -488,112 +471,111 @@ def doctor() -> None:
 
     load_env()
 
-    ok_mark = "[green]OK[/green]"
-    fail_mark = "[red]MISSING[/red]"
-    warn_mark = "[yellow]WARN[/yellow]"
+    console.print()
+    print_banner()
 
-    results: list[tuple[str, str, str]] = []  # (check, status, note)
+    results: list[tuple[str, str, str, str]] = []  # (check, status, emoji, note)
 
-    # --- Tier 1 checks ---
-    # Profile
+    # Tier 1 checks
     if PROFILE_PATH.exists():
-        results.append(("profile.json", ok_mark, str(PROFILE_PATH)))
+        results.append(("profile.json", "ok", "✅", str(PROFILE_PATH)))
     else:
-        results.append(("profile.json", fail_mark, "Run 'joborion init' to create"))
+        results.append(("profile.json", "fail", "❌", "Run 'joborion init'"))
 
-    # Resume
     if RESUME_PATH.exists():
-        results.append(("resume.txt", ok_mark, str(RESUME_PATH)))
+        results.append(("resume.txt", "ok", "✅", str(RESUME_PATH)))
     elif RESUME_PDF_PATH.exists():
-        results.append(("resume.txt", warn_mark, "Only PDF found — plain-text needed for AI stages"))
+        results.append(("resume.txt", "warn", "⚠️", "Only PDF found"))
     else:
-        results.append(("resume.txt", fail_mark, "Run 'joborion init' to add your resume"))
+        results.append(("resume.txt", "fail", "❌", "Run 'joborion init'"))
 
-    # Search config
     if SEARCH_CONFIG_PATH.exists():
-        results.append(("searches.yaml", ok_mark, str(SEARCH_CONFIG_PATH)))
+        results.append(("searches.yaml", "ok", "✅", str(SEARCH_CONFIG_PATH)))
     else:
-        results.append(("searches.yaml", warn_mark, "Will use example config — run 'joborion init'"))
+        results.append(("searches.yaml", "warn", "⚠️", "Will use example"))
 
-    # jobspy (discovery dep installed separately)
-    try:
-        import jobspy  # noqa: F401
-        results.append(("python-jobspy", ok_mark, "Job board scraping available"))
-    except ImportError:
-        results.append(("python-jobspy", warn_mark,
-                        "pip install --no-deps python-jobspy && pip install pydantic tls-client requests markdownify regex"))
+    import importlib.util
+    if importlib.util.find_spec("jobspy"):
+        results.append(("python-jobspy", "ok", "✅", "Job board scraping"))
+    else:
+        results.append(("python-jobspy", "warn", "⚠️", "pip install python-jobspy"))
 
-    # --- Tier 2 checks ---
-    import os
+    # Tier 2 checks
     has_gemini = bool(os.environ.get("GEMINI_API_KEY"))
     has_openai = bool(os.environ.get("OPENAI_API_KEY"))
     has_local = bool(os.environ.get("LLM_URL"))
     if has_gemini:
         model = os.environ.get("LLM_MODEL", "gemini-2.0-flash")
-        results.append(("LLM API key", ok_mark, f"Gemini ({model})"))
+        results.append(("LLM API key", "ok", "✅", f"Gemini ({model})"))
     elif has_openai:
         model = os.environ.get("LLM_MODEL", "gpt-4o-mini")
-        results.append(("LLM API key", ok_mark, f"OpenAI ({model})"))
+        results.append(("LLM API key", "ok", "✅", f"OpenAI ({model})"))
     elif has_local:
-        results.append(("LLM API key", ok_mark, f"Local: {os.environ.get('LLM_URL')}"))
+        results.append(("LLM API key", "ok", "✅", f"Local: {os.environ.get('LLM_URL')}"))
     else:
-        results.append(("LLM API key", fail_mark,
-                        "Set GEMINI_API_KEY in ~/.joborion/.env (run 'joborion init')"))
+        results.append(("LLM API key", "fail", "❌", "Set GEMINI_API_KEY"))
 
-    # --- Tier 3 checks ---
-    # Claude Code CLI
+    # Tier 3 checks
     claude_bin = shutil.which("claude")
     if claude_bin:
-        results.append(("Claude Code CLI", ok_mark, claude_bin))
+        results.append(("Claude Code CLI", "ok", "✅", claude_bin))
     else:
-        results.append(("Claude Code CLI", fail_mark,
-                        "Install from https://claude.ai/code (needed for auto-apply)"))
+        results.append(("Claude Code CLI", "fail", "❌", "Install from claude.ai/code"))
 
-    # Chrome
     try:
         chrome_path = get_chrome_path()
-        results.append(("Chrome/Chromium", ok_mark, chrome_path))
+        results.append(("Chrome/Chromium", "ok", "✅", chrome_path))
     except FileNotFoundError:
-        results.append(("Chrome/Chromium", fail_mark,
-                        "Install Chrome or set CHROME_PATH env var (needed for auto-apply)"))
+        results.append(("Chrome/Chromium", "fail", "❌", "Install Chrome"))
 
-    # Node.js / npx (for Playwright MCP)
     npx_bin = shutil.which("npx")
     if npx_bin:
-        results.append(("Node.js (npx)", ok_mark, npx_bin))
+        results.append(("Node.js (npx)", "ok", "✅", npx_bin))
     else:
-        results.append(("Node.js (npx)", fail_mark,
-                        "Install Node.js 18+ from nodejs.org (needed for auto-apply)"))
+        results.append(("Node.js (npx)", "fail", "❌", "Install Node.js 18+"))
 
-    # CapSolver (optional)
     capsolver = os.environ.get("CAPSOLVER_API_KEY")
     if capsolver:
-        results.append(("CapSolver API key", ok_mark, "CAPTCHA solving enabled"))
+        results.append(("CapSolver API key", "ok", "✅", "CAPTCHA solving enabled"))
     else:
-        results.append(("CapSolver API key", "[dim]optional[/dim]",
-                        "Set CAPSOLVER_API_KEY in .env for CAPTCHA solving"))
+        results.append(("CapSolver API key", "warn", "💡", "Optional: CAPTCHA solving"))
 
-    # --- Render results ---
-    console.print()
-    console.print("[bold]JobOrion Doctor[/bold]\n")
+    # Render results
+    table = Table(
+        title="[bold bright cyan]System Health[/bold bright cyan]",
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold cyan",
+        border_style="bright cyan",
+    )
+    table.add_column("Component", style="bold", width=20)
+    table.add_column("Status", justify="center", width=8)
+    table.add_column("Details", width=35)
 
-    col_w = max(len(r[0]) for r in results) + 2
-    for check, status, note in results:
-        pad = " " * (col_w - len(check))
-        console.print(f"  {check}{pad}{status}  [dim]{note}[/dim]")
+    for check, status, emoji, note in results:
+        status_color = "green" if status == "ok" else "yellow" if status == "warn" else "red"
+        table.add_row(check, f"[{status_color}]{emoji}[/{status_color}]", f"[dim]{note}[/dim]")
 
-    console.print()
+    console.print(table)
 
     # Tier summary
     from joborion.config import get_tier, TIER_LABELS
     tier = get_tier()
-    console.print(f"[bold]Current tier: Tier {tier} — {TIER_LABELS[tier]}[/bold]")
 
-    if tier == 1:
-        console.print("[dim]  → Tier 2 unlocks: scoring, tailoring, cover letters (needs LLM API key)[/dim]")
-        console.print("[dim]  → Tier 3 unlocks: auto-apply (needs Claude Code CLI + Chrome + Node.js)[/dim]")
-    elif tier == 2:
-        console.print("[dim]  → Tier 3 unlocks: auto-apply (needs Claude Code CLI + Chrome + Node.js)[/dim]")
+    console.print()
+    console.print(Panel(
+        f"[bold]Tier {tier}: {TIER_LABELS[tier]}[/bold]\n\n"
+        + (
+            "[dim]→ Tier 2: scoring, tailoring (needs LLM API key)[/dim]\n"
+            "[dim]→ Tier 3: auto-apply (needs Claude CLI + Chrome)[/dim]"
+            if tier == 1
+            else "[dim]→ Tier 3: auto-apply (needs Claude CLI + Chrome)[/dim]"
+            if tier == 2
+            else "[green]All tiers unlocked![/green]"
+        ),
+        border_style="cyan",
+        padding=(1, 2),
+    ))
 
     console.print()
 
