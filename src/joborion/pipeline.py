@@ -18,10 +18,14 @@ import time
 from datetime import datetime
 
 from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
 
 from joborion.config import load_env, ensure_dirs
+from joborion.ui import (
+    print_tool_line, print_screen_header, print_success,
+    print_error, print_warning, print_info,
+    make_pipeline_table, make_stats_table,
+    print_status_bar, make_gradient_panel,
+)
 from joborion.database import (
     init_db, get_connection, get_stats, record_source_run,
     get_reliable_sites, get_blocked_sites_from_memory, record_site_attempt,
@@ -75,25 +79,23 @@ def _run_discovery_stage(workers: int = 1) -> dict:
     # Get blocked sites from memory — skip these entirely
     blocked = get_blocked_sites_from_memory()
     if blocked:
-        console.print(f"  [yellow]Skipping blocked sites: {', '.join(blocked)}[/yellow]")
+        print_warning(f"Skipping blocked sites: {', '.join(blocked)}")
 
     # Get reliable sites for prioritization
     reliable = get_reliable_sites()
     default_order = ["jobspy", "workday", "smartextract"]
 
     if reliable:
-        # Put reliable sources first, then the rest
         source_order = reliable + [s for s in default_order if s not in reliable]
     else:
         source_order = list(default_order)
 
-    # Filter out blocked sources
     source_order = [s for s in source_order if s not in blocked]
 
     # Run sources in order
     for source in source_order:
         if source == "jobspy":
-            console.print("  [cyan]JobSpy full crawl...[/cyan]")
+            print_tool_line("JobSpy full crawl...")
             try:
                 from joborion.discovery.jobspy import scrape_jobspy
                 import time
@@ -103,15 +105,16 @@ def _run_discovery_stage(workers: int = 1) -> dict:
                 stats["jobspy"] = "ok"
                 record_source_run("jobspy", success=True, jobs_found=0)
                 record_site_attempt("jobspy", success=True, duration_ms=elapsed_ms)
+                print_success("JobSpy completed")
             except Exception as e:
                 log.error("JobSpy crawl failed: %s", e)
-                console.print(f"  [red]JobSpy error:[/red] {e}")
+                print_error(f"JobSpy error: {e}")
                 stats["jobspy"] = f"error: {e}"
                 record_source_run("jobspy", success=False, error=str(e))
                 record_site_attempt("jobspy", success=False)
 
         elif source == "workday":
-            console.print("  [cyan]Workday corporate scraper...[/cyan]")
+            print_tool_line("Workday corporate scraper...")
             try:
                 from joborion.discovery.workday import scrape_workday
                 import time
@@ -121,15 +124,16 @@ def _run_discovery_stage(workers: int = 1) -> dict:
                 stats["workday"] = "ok"
                 record_source_run("workday", success=True, jobs_found=0)
                 record_site_attempt("workday", success=True, duration_ms=elapsed_ms)
+                print_success("Workday completed")
             except Exception as e:
                 log.error("Workday scraper failed: %s", e)
-                console.print(f"  [red]Workday error:[/red] {e}")
+                print_error(f"Workday error: {e}")
                 stats["workday"] = f"error: {e}"
                 record_source_run("workday", success=False, error=str(e))
                 record_site_attempt("workday", success=False)
 
         elif source == "smartextract":
-            console.print("  [cyan]Smart extract (AI-powered scraping)...[/cyan]")
+            print_tool_line("AI-powered scraping...")
             try:
                 from joborion.discovery.ai_scraper import scrape_ai_sites
                 import time
@@ -139,9 +143,10 @@ def _run_discovery_stage(workers: int = 1) -> dict:
                 stats["smartextract"] = "ok"
                 record_source_run("smartextract", success=True, jobs_found=0)
                 record_site_attempt("smartextract", success=True, duration_ms=elapsed_ms)
+                print_success("Smart extract completed")
             except Exception as e:
                 log.error("Smart extract failed: %s", e)
-                console.print(f"  [red]Smart extract error:[/red] {e}")
+                print_error(f"Smart extract error: {e}")
                 stats["smartextract"] = f"error: {e}"
                 record_source_run("smartextract", success=False, error=str(e))
                 record_site_attempt("smartextract", success=False)
@@ -204,7 +209,12 @@ def _run_pdf_conversion_stage() -> dict:
         return {"status": f"error: {e}"}
 
 
-# Map stage names to their runner functions
+    # Map stage names to their runner functions
+STAGE_ICONS = {
+    "search": "search", "details": "document", "evaluate": "score",
+    "tailor": "scissors", "letter": "envelope", "export": "document",
+}
+
 STAGE_RUNNERS: dict[str, callable] = {
     "search":   _run_discovery_stage,
     "details":  _run_enrichment_stage,
@@ -379,13 +389,18 @@ def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
     results: list[dict] = []
     errors: dict[str, str] = {}
     pipeline_start = time.time()
+    total_stages = len(ordered)
 
-    for name in ordered:
+    for i, name in enumerate(ordered, 1):
         meta = STAGE_META[name]
-        console.print(f"\n{'=' * 70}")
-        console.print(f"  [bold]STAGE: {name}[/bold] — {meta['desc']}")
-        console.print(f"  Started: {datetime.now().strftime('%H:%M:%S')}")
-        console.print(f"{'=' * 70}")
+        print_screen_header(name, meta['desc'], icon=STAGE_ICONS.get(name))
+        print_status_bar(
+            model="",
+            tokens_used=0,
+            cost=0.0,
+            duration=f"{time.time() - pipeline_start:.0f}s",
+            stage=f"[{i}/{total_stages}] {name}",
+        )
 
         t0 = time.time()
         runner = STAGE_RUNNERS[name]
@@ -415,13 +430,13 @@ def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
             elapsed = time.time() - t0
             status = f"error: {e}"
             log.exception("Stage '%s' crashed", name)
-            console.print(f"\n  [red]STAGE FAILED:[/red] {e}")
+            print_error(f"Stage '{name}' crashed: {e}")
 
         results.append({"stage": name, "status": status, "elapsed": elapsed})
         if status not in ("ok", "partial"):
             errors[name] = status
 
-        console.print(f"\n  Stage '{name}' completed in {elapsed:.1f}s — {status}")
+        print_success(f"Stage '{name}' completed in {elapsed:.1f}s — {status}")
 
     total_elapsed = time.time() - pipeline_start
     return {"stages": results, "errors": errors, "elapsed": total_elapsed}
@@ -434,15 +449,13 @@ def _run_streaming(ordered: list[str], min_score: int, workers: int = 1,
     stop_event = threading.Event()
     pipeline_start = time.time()
 
-    console.print("\n  [bold cyan]STREAMING MODE[/bold cyan] — stages run concurrently")
-    console.print(f"  Poll interval: {_STREAM_POLL_INTERVAL}s\n")
+    print_info("STREAMING MODE — stages run concurrently")
+    print_tool_line(f"Poll interval: {_STREAM_POLL_INTERVAL}s")
 
-    # Mark stages NOT in `ordered` as done so downstream doesn't wait for them
     for stage in STAGE_ORDER:
         if stage not in ordered:
             tracker.mark_done(stage, {"status": "skipped"})
 
-    # Launch each stage in its own thread
     threads: dict[str, threading.Thread] = {}
     start_times: dict[str, float] = {}
 
@@ -456,25 +469,21 @@ def _run_streaming(ordered: list[str], min_score: int, workers: int = 1,
         )
         threads[name] = t
         t.start()
-        console.print(f"  [dim]Started thread:[/dim] {name}")
+        print_tool_line(f"Started: {name}")
 
-    # Wait for all threads to finish
     try:
         for name in ordered:
             threads[name].join()
             elapsed = time.time() - start_times[name]
-            console.print(
-                f"  [green]Completed:[/green] {name} ({elapsed:.1f}s)"
-            )
+            print_success(f"Completed: {name} ({elapsed:.1f}s)")
     except KeyboardInterrupt:
-        console.print("\n[yellow]Interrupted — stopping stages...[/yellow]")
+        print_warning("Interrupted — stopping stages...")
         stop_event.set()
         for t in threads.values():
             t.join(timeout=10)
 
     total_elapsed = time.time() - pipeline_start
 
-    # Build results from tracker
     all_results = tracker.get_results()
     results: list[dict] = []
     errors: dict[str, str] = {}
@@ -523,26 +532,25 @@ def run_pipeline(
 
     # Banner
     mode = "streaming" if stream else "sequential"
-    console.print()
-    console.print(Panel.fit(
+    console.print(make_gradient_panel(
         f"[bold]JobOrion Pipeline[/bold] ({mode})",
-        border_style="blue",
+        border_style="bright_cyan",
     ))
-    console.print(f"  Min score:  {min_score}")
-    console.print(f"  Workers:    {workers}")
-    console.print(f"  Validation: {validation_mode}")
-    console.print(f"  Stages:     {' -> '.join(ordered)}")
+    print_tool_line(f"Min score: {min_score}")
+    print_tool_line(f"Workers: {workers}")
+    print_tool_line(f"Validation: {validation_mode}")
+    print_tool_line(f"Stages: {' -> '.join(ordered)}")
 
     # Pre-run stats
     pre_stats = get_stats()
-    console.print(f"  DB:        {pre_stats['total']} jobs, {pre_stats['pending_detail']} pending enrichment")
+    print_tool_line(f"{pre_stats['total']} jobs, {pre_stats['pending_detail']} pending enrichment")
 
     if dry_run:
-        console.print(f"\n  [yellow]DRY RUN[/yellow] — would execute ({mode}):")
+        print_warning("DRY RUN — would execute:")
         for name in ordered:
             meta = STAGE_META[name]
-            console.print(f"    {name:<12s}  {meta['desc']}")
-        console.print("\n  No changes made.")
+            print_tool_line(f"{name}  {meta['desc']}")
+        print_info("No changes made.")
         return {"stages": [], "errors": {}, "elapsed": 0.0}
 
     # Start run log
@@ -572,39 +580,22 @@ def run_pipeline(
         "errors": str(result.get("errors")) if result.get("errors") else None,
     })
 
-    # Summary table
-    console.print(f"\n{'=' * 70}")
-    summary = Table(title="Pipeline Summary", show_header=True, header_style="bold")
-    summary.add_column("Stage", style="bold")
-    summary.add_column("Status")
-    summary.add_column("Time", justify="right")
-
-    for r in result["stages"]:
-        elapsed_str = f"{r['elapsed']:.1f}s"
-        status_display = r["status"][:30]
-        if r["status"] == "ok":
-            style = "green"
-        elif r["status"] in ("partial", "skipped"):
-            style = "yellow"
-        else:
-            style = "red"
-        summary.add_row(r["stage"], f"[{style}]{status_display}[/{style}]", elapsed_str)
-
-    summary.add_row("", "", "")
-    summary.add_row("[bold]Total[/bold]", "", f"[bold]{result['elapsed']:.1f}s[/bold]")
-    console.print(summary)
+    # Summary
+    console.print(make_gradient_panel(
+        "[bold]Pipeline Summary[/bold]",
+        border_style="bright_cyan",
+    ))
+    pipeline_stages = [
+        {"name": r["stage"], "status": r["status"], "count": 1}
+        for r in result["stages"]
+    ]
+    console.print(make_pipeline_table(pipeline_stages))
+    print_tool_line(f"Total: {result['elapsed']:.1f}s")
 
     # Final DB stats
     final = get_stats()
-    console.print("\n  [bold]DB Final State:[/bold]")
-    console.print(f"    Total jobs:     {final['total']}")
-    console.print(f"    With desc:      {final['with_description']}")
-    console.print(f"    Scored:         {final['scored']}")
-    console.print(f"    Tailored:       {final['tailored']}")
-    console.print(f"    Cover letters:  {final['with_cover_letter']}")
-    console.print(f"    Ready to apply: {final['ready_to_apply']}")
-    console.print(f"    Applied:        {final['applied']}")
-    console.print(f"{'=' * 70}\n")
+    console.print(make_stats_table(final))
+    print_tool_line(f"Applied: {final['applied']}")
 
     # Record run history for future reference
     _record_run_history(ordered, pre_stats, final, result)
