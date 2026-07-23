@@ -23,18 +23,18 @@ COLORS = {
     "error": "red",
     "info": "blue",
     "dim": "dim white",
-    "bright": "bright white",
-    "accent": "bright cyan",
+    "bright": "bright_white",
+    "accent": "bright_cyan",
 }
 
 # Stage colors
 STAGE_COLORS = {
-    "search": "bright cyan",
-    "details": "bright blue",
-    "evaluate": "bright yellow",
-    "tailor": "bright green",
-    "letter": "bright magenta",
-    "export": "bright white",
+    "search": "bright_cyan",
+    "details": "bright_blue",
+    "evaluate": "bright_yellow",
+    "tailor": "bright_green",
+    "letter": "bright_magenta",
+    "export": "bright_white",
 }
 
 # Stage emojis
@@ -51,14 +51,14 @@ STAGE_EMOJI = {
 def print_banner() -> None:
     """Print the main application banner."""
     banner = """
-[bold bright cyan]
+[bold bright_cyan]
      ██╗ ██████╗ ██████╗ ██╗   ██╗███████╗███████╗████████╗
      ██║██╔═══██╗██╔══██╗╚██╗ ██╔╝██╔════╝██╔════╝╚══██╔══╝
      ██║██║   ██║██████╔╝ ╚████╔╝ █████╗  ███████╗   ██║
 ██   ██║██║   ██║██╔══██╗  ╚██╔╝  ██╔══╝  ╚════██║   ██║
 ╚█████╔╝╚██████╔╝██║  ██║   ██║   ███████╗███████║   ██║
  ╚════╝  ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝╚══════╝   ╚═╝
-[/bold bright cyan]
+[/bold bright_cyan]
 [dim]AI-Powered Job Application Pipeline[/dim]"""
     console.print(banner)
 
@@ -121,11 +121,11 @@ def make_pipeline_table(stages: list[dict]) -> Table:
         stages: List of dicts with keys: name, status, count.
     """
     table = Table(
-        title="[bold bright cyan]Pipeline Status[/bold bright cyan]",
+        title="[bold bright_cyan]Pipeline Status[/bold bright_cyan]",
         box=box.ROUNDED,
         show_header=True,
         header_style="bold cyan",
-        border_style="bright blue",
+        border_style="bright_blue",
         padding=(0, 1),
     )
 
@@ -173,11 +173,11 @@ def make_pipeline_table(stages: list[dict]) -> Table:
 def make_stats_table(stats: dict) -> Table:
     """Create a beautiful statistics table."""
     table = Table(
-        title="[bold bright cyan]Job Statistics[/bold bright cyan]",
+        title="[bold bright_cyan]Job Statistics[/bold bright_cyan]",
         box=box.ROUNDED,
         show_header=True,
         header_style="bold magenta",
-        border_style="bright magenta",
+        border_style="bright_magenta",
         padding=(0, 1),
     )
 
@@ -215,11 +215,11 @@ def make_stats_table(stats: dict) -> Table:
 def make_cost_table(costs: dict) -> Table:
     """Create a cost breakdown table."""
     table = Table(
-        title="[bold bright cyan]Cost Breakdown[/bold bright cyan]",
+        title="[bold bright_cyan]Cost Breakdown[/bold bright_cyan]",
         box=box.ROUNDED,
         show_header=True,
         header_style="bold yellow",
-        border_style="bright yellow",
+        border_style="bright_yellow",
         padding=(0, 1),
     )
 
@@ -241,11 +241,11 @@ def make_cost_table(costs: dict) -> Table:
 def make_plan_table(steps: list[dict]) -> Table:
     """Create an execution plan table."""
     table = Table(
-        title="[bold bright cyan]Execution Plan[/bold bright cyan]",
+        title="[bold bright_cyan]Execution Plan[/bold bright_cyan]",
         box=box.ROUNDED,
         show_header=True,
         header_style="bold cyan",
-        border_style="bright cyan",
+        border_style="bright_cyan",
         padding=(0, 1),
     )
 

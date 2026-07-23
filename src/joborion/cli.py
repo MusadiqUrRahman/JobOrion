@@ -23,7 +23,7 @@ logging.basicConfig(
 
 app = typer.Typer(
     name="joborion",
-    help="[bold bright cyan]AI-powered end-to-end job application pipeline[/bold bright cyan]",
+    help="[bold bright_cyan]AI-powered end-to-end job application pipeline[/bold bright_cyan]",
     no_args_is_help=True,
     rich_markup_mode="rich",
 )
@@ -65,7 +65,7 @@ def main(
         is_eager=True,
     ),
 ) -> None:
-    """[bold bright cyan]JobOrion[/bold bright cyan] — AI-powered job application pipeline."""
+    """[bold bright_cyan]JobOrion[/bold bright_cyan] — AI-powered job application pipeline."""
 
 
 @app.command()
@@ -91,7 +91,7 @@ def plan(
         plan_result = orch.plan()
         console.print()
         console.print(Panel(
-            f"[bold bright cyan]{goal}[/bold cyan]",
+            f"[bold bright_cyan]{goal}[/bold bright_cyan]",
             title="[bold]🎯 Goal[/bold]",
             border_style="cyan",
             padding=(0, 1),
@@ -191,7 +191,7 @@ def run(
                 plan_result = orch.plan()
                 console.print()
                 console.print(Panel(
-                    f"[bold bright cyan]{goal}[/bold cyan]",
+                    f"[bold bright_cyan]{goal}[/bold bright_cyan]",
                     title="[bold]🎯 Goal[/bold]",
                     border_style="cyan",
                 ))
@@ -358,7 +358,7 @@ def apply(
     # Show launch banner
     console.print()
     console.print(Panel(
-        f"[bold bright cyan]🚀 Launching Auto-Apply[/bold cyan]\n\n"
+        f"[bold bright_cyan]🚀 Launching Auto-Apply[/bold bright_cyan]\n\n"
         f"  [bold]Limit:[/bold]    {'unlimited' if continuous else effective_limit}\n"
         f"  [bold]Workers:[/bold]  {workers}\n"
         f"  [bold]Model:[/bold]    {model}\n"
@@ -401,11 +401,11 @@ def status() -> None:
     if stats["score_distribution"]:
         console.print()
         dist_table = Table(
-            title="[bold bright yellow]Score Distribution[/bold bright yellow]",
+            title="[bold bright_yellow]Score Distribution[/bold bright_yellow]",
             box=box.ROUNDED,
             show_header=True,
             header_style="bold yellow",
-            border_style="bright yellow",
+            border_style="bright_yellow",
         )
         dist_table.add_column("Score", justify="center", width=6)
         dist_table.add_column("Count", justify="right", width=6)
@@ -432,11 +432,11 @@ def status() -> None:
     if stats["by_site"]:
         console.print()
         site_table = Table(
-            title="[bold bright magenta]Jobs by Source[/bold bright magenta]",
+            title="[bold bright_magenta]Jobs by Source[/bold bright_magenta]",
             box=box.ROUNDED,
             show_header=True,
             header_style="bold magenta",
-            border_style="bright magenta",
+            border_style="bright_magenta",
         )
         site_table.add_column("Source", width=25)
         site_table.add_column("Count", justify="right", width=8)
@@ -542,11 +542,11 @@ def doctor() -> None:
 
     # Render results
     table = Table(
-        title="[bold bright cyan]System Health[/bold bright cyan]",
+        title="[bold bright_cyan]System Health[/bold bright_cyan]",
         box=box.ROUNDED,
         show_header=True,
         header_style="bold cyan",
-        border_style="bright cyan",
+        border_style="bright_cyan",
     )
     table.add_column("Component", style="bold", width=20)
     table.add_column("Status", justify="center", width=8)
