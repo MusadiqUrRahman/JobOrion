@@ -1,4 +1,4 @@
-"""JobOrion CLI — the main entry point."""
+"""JobOrion CLI — the main entry point with premium terminal experience."""
 
 from __future__ import annotations
 
@@ -6,13 +6,27 @@ import logging
 from typing import Optional
 
 import typer
-from rich.panel import Panel
-from rich.table import Table
-from rich import box
 
 from joborion.ui import (
-    console, print_banner, print_success, print_warning, make_stats_table, make_plan_table, print_completed,
+    console,
+    print_banner,
+    print_screen_header,
+    print_goal_panel,
+    print_rule,
+    print_spacer,
+    print_success,
+    print_error,
+    print_warning,
+    make_gradient_panel,
+    print_success_banner,
     print_reflection_card,
+    make_plan_table,
+    make_stats_table,
+    make_score_distribution_table,
+    make_site_table,
+    make_doctor_table,
+    print_tier_panel,
+    print_spinner,
 )
 
 logging.basicConfig(
@@ -28,7 +42,6 @@ app = typer.Typer(
     rich_markup_mode="rich",
 )
 
-# Valid pipeline stages (in execution order)
 VALID_STAGES = ("search", "details", "evaluate", "tailor", "letter", "export")
 
 
@@ -37,7 +50,6 @@ VALID_STAGES = ("search", "details", "evaluate", "tailor", "letter", "export")
 # ---------------------------------------------------------------------------
 
 def _bootstrap() -> None:
-    """Common setup: load env, create dirs, init DB."""
     from joborion.config import load_env, ensure_dirs
     from joborion.database import init_db
 
@@ -73,6 +85,7 @@ def init() -> None:
     """Run the first-time setup wizard (profile, resume, search config)."""
     from joborion.wizard.init import run_wizard
 
+    print_screen_header("Setup Wizard", "First-time configuration", "🧙")
     run_wizard()
 
 
@@ -85,17 +98,17 @@ def plan(
     """Plan job search pipeline from a natural language goal."""
     from joborion.agent.orchestrator import Orchestrator
 
+    print_screen_header("Pipeline Planner", "Goal-driven execution plan", "🗺️")
+
     orch = Orchestrator(goal=goal, max_cost=max_cost)
 
     if dry_run:
-        plan_result = orch.plan()
-        console.print()
-        console.print(Panel(
-            f"[bold bright_cyan]{goal}[/bold bright_cyan]",
-            title="[bold]🎯 Goal[/bold]",
-            border_style="cyan",
-            padding=(0, 1),
-        ))
+        with print_spinner("Analyzing your goal..."):
+            plan_result = orch.plan()
+
+        print_spacer()
+        print_goal_panel(goal)
+        print_spacer()
 
         steps_data = [
             {
@@ -108,13 +121,23 @@ def plan(
         table = make_plan_table(steps_data)
         console.print(table)
 
-        console.print()
-        console.print(f"  [bold]Estimated cost:[/bold] [yellow]${plan_result.total_cost:.4f}[/yellow]")
-        console.print(f"  [bold]Estimated time:[/bold] [cyan]{plan_result.total_duration_ms / 1000:.1f}s[/cyan]")
-        console.print()
+        print_spacer()
+
+        # Summary in elegant panel
+        summary = f"""
+  📊 Estimated cost:    [bold bright_yellow]${plan_result.total_cost:.4f}[/bold bright_yellow]
+  ⏱️  Estimated time:    [bold bright_cyan]{plan_result.total_duration_ms / 1000:.1f}s[/bold bright_cyan]
+  📋 Steps:             [bold bright_white]{len(plan_result.steps)}[/bold bright_white]
+"""
+        console.print(make_gradient_panel(
+            summary,
+            border_style="bright_cyan",
+            padding=(0, 2),
+        ))
+        print_spacer()
     else:
         result = orch.execute()
-        print_completed(
+        print_success_banner(
             "Pipeline completed!",
             cost=result["total_cost"],
             errors=len(result.get("errors", [])),
@@ -133,28 +156,41 @@ def reflect(
     )
 
     _bootstrap()
+    print_screen_header("Reflection", "Learn from past runs", "🪞")
+
     conn = get_connection()
     reflector = Reflector(conn)
 
     if run_id:
-        result = reflector.analyze_run(run_id)
-        ref_id = store_reflection(result, conn=conn)
+        with print_spinner(f"Analyzing run {run_id}..."):
+            result = reflector.analyze_run(run_id)
+            ref_id = store_reflection(result, conn=conn)
+        print_spacer()
         print_reflection_card(result, ref_id)
     else:
         runs = get_recent_runs(n=last)
         if not runs:
-            console.print(Panel(
-                "[yellow]No runs found to analyze.[/yellow]",
-                border_style="yellow",
+            console.print(make_gradient_panel(
+                "[bright_yellow]No runs found to analyze.[/bright_yellow]\n\n"
+                "  [dim]Run a pipeline first: [bold bright_cyan]joborion run --goal \"Find Python jobs\"[/bold bright_cyan][/dim]",
+                border_style="bright_yellow",
+                padding=(1, 2),
             ))
             return
 
+        with print_spinner(f"Analyzing {len(runs)} run(s)..."):
+            for run in runs:
+                rid = run.get("run_id", "")
+                result = reflector.analyze_run(rid)
+                ref_id = store_reflection(result, conn=conn)
+
+        print_spacer()
         for run in runs:
             rid = run.get("run_id", "")
             result = reflector.analyze_run(rid)
             ref_id = store_reflection(result, conn=conn)
             print_reflection_card(result, ref_id)
-            console.print()
+            print_spacer()
 
 
 @app.command()
@@ -176,25 +212,32 @@ def run(
     """Run pipeline stages: search, details, evaluate, tailor, letter, export."""
     _bootstrap()
 
-    # If --goal is provided, use orchestrator
+    # Goal-driven mode
     if goal:
         from joborion.agent.orchestrator import Orchestrator
+
+        print_screen_header("Pipeline Runner", "Goal-driven execution", "🚀")
 
         orch = Orchestrator(goal=goal, max_cost=5.0, auto=auto, yes=yes, semi=semi)
 
         if auto:
-            result = orch.execute_autonomous()
+            with print_spinner("Running autonomous pipeline..."):
+                result = orch.execute_autonomous()
             report = result.get("report", "")
-            console.print(Panel(report, border_style="green", padding=(1, 2)))
+            console.print(make_gradient_panel(
+                report,
+                title="[bold bright_green]🏁 Autonomous Run Complete[/bold bright_green]",
+                border_style="bright_green",
+                padding=(1, 2),
+            ))
         else:
             if dry_run:
-                plan_result = orch.plan()
-                console.print()
-                console.print(Panel(
-                    f"[bold bright_cyan]{goal}[/bold bright_cyan]",
-                    title="[bold]🎯 Goal[/bold]",
-                    border_style="cyan",
-                ))
+                with print_spinner("Planning execution..."):
+                    plan_result = orch.plan()
+
+                print_spacer()
+                print_goal_panel(goal)
+                print_spacer()
 
                 steps_data = [
                     {"tool": s.tool, "description": s.description, "cost_estimate": s.cost_estimate}
@@ -202,10 +245,11 @@ def run(
                 ]
                 table = make_plan_table(steps_data)
                 console.print(table)
-                console.print()
+                print_spacer()
             else:
-                result = orch.execute()
-                print_completed(
+                with print_spinner("Running pipeline..."):
+                    result = orch.execute()
+                print_success_banner(
                     "Pipeline completed!",
                     cost=result["total_cost"],
                     errors=len(result.get("errors", [])),
@@ -217,39 +261,40 @@ def run(
 
     stage_list = stages if stages else ["all"]
 
-    # Validate stage names
     for s in stage_list:
         if s != "all" and s not in VALID_STAGES:
-            console.print(Panel(
-                f"[red]Unknown stage:[/red] '{s}'\n"
-                f"Valid stages: {', '.join(VALID_STAGES)}, all",
-                border_style="red",
+            print_error(f"Unknown stage: '{s}'")
+            console.print(make_gradient_panel(
+                f"[dim]Valid stages: {', '.join(VALID_STAGES)}, all[/dim]",
+                border_style="bright_red",
             ))
             raise typer.Exit(code=1)
 
-    # Gate AI stages behind Tier 2
     llm_stages = {"evaluate", "tailor", "letter"}
     if any(s in stage_list for s in llm_stages) or "all" in stage_list:
         from joborion.config import check_tier
         check_tier(2, "AI scoring/tailoring")
 
-    # Validate --validation flag
     valid_modes = ("strict", "normal", "lenient")
     if validation not in valid_modes:
-        console.print(Panel(
-            f"[red]Invalid --validation:[/red] '{validation}'\n"
-            f"Choose from: {', '.join(valid_modes)}",
-            border_style="red",
+        print_error(f"Invalid --validation: '{validation}'")
+        console.print(make_gradient_panel(
+            f"[dim]Choose from: {', '.join(valid_modes)}[/dim]",
+            border_style="bright_red",
         ))
         raise typer.Exit(code=1)
 
-    # Show what we're about to do
-    console.print()
-    console.print(Panel(
-        f"[bold]Running:[/bold] {' → '.join(stage_list)}",
-        border_style="cyan",
+    # Stage pipeline view
+    print_screen_header("Pipeline Runner", "Stage execution", "⚡")
+
+    stage_flow = " → ".join(stage_list)
+    console.print(make_gradient_panel(
+        f"[bold bright_white]{stage_flow}[/bold bright_white]",
+        title="[bold bright_cyan]Stages[/bold bright_cyan]",
+        border_style="bright_cyan",
         padding=(0, 1),
     ))
+    print_spacer()
 
     result = run_pipeline(
         stages=stage_list,
@@ -305,14 +350,14 @@ def apply(
         print_success(f"Reset {count} failed job(s) for retry.")
         return
 
-    # Full apply mode
     check_tier(3, "auto-apply")
 
     if not _profile_path.exists():
-        console.print(Panel(
-            "[red]Profile not found.[/red]\n"
-            "Run [bold]joborion init[/bold] to create your profile first.",
-            border_style="red",
+        print_error("Profile not found")
+        console.print(make_gradient_panel(
+            "[dim]Run [bold bright_cyan]joborion init[/bold bright_cyan] to create your profile first.[/dim]",
+            border_style="bright_red",
+            padding=(1, 2),
         ))
         raise typer.Exit(code=1)
 
@@ -322,10 +367,11 @@ def apply(
             "SELECT COUNT(*) FROM jobs WHERE tailored_resume_path IS NOT NULL AND applied_at IS NULL"
         ).fetchone()[0]
         if ready == 0:
-            console.print(Panel(
-                "[red]No tailored resumes ready.[/red]\n"
-                "Run [bold]joborion run evaluate tailor[/bold] first.",
-                border_style="red",
+            print_error("No tailored resumes ready")
+            console.print(make_gradient_panel(
+                "[dim]Run [bold bright_cyan]joborion run evaluate tailor[/bold bright_cyan] first.[/dim]",
+                border_style="bright_red",
+                padding=(1, 2),
             ))
             raise typer.Exit(code=1)
 
@@ -333,21 +379,22 @@ def apply(
         from joborion.apply.runner import gen_prompt
         target = url or ""
         if not target:
-            console.print(Panel("[red]--gen requires --url[/red]", border_style="red"))
+            print_error("--gen requires --url")
             raise typer.Exit(code=1)
         prompt_file = gen_prompt(target, min_score=min_score, model=model)
         if not prompt_file:
-            console.print(Panel("[red]No matching job found.[/red]", border_style="red"))
+            print_error("No matching job found")
             raise typer.Exit(code=1)
         mcp_path = _profile_path.parent / ".mcp-apply-0.json"
         print_success(f"Wrote prompt to: {prompt_file}")
-        console.print()
-        console.print(Panel(
-            f"[bold]Run manually:[/bold]\n"
-            f"claude --model {model} -p "
+        print_spacer()
+        console.print(make_gradient_panel(
+            f"[bold bright_white]Run manually:[/bold bright_white]\n"
+            f"[dim]claude --model {model} -p "
             f"--mcp-config {mcp_path} "
-            f"--permission-mode bypassPermissions < {prompt_file}",
-            border_style="cyan",
+            f"--permission-mode bypassPermissions < {prompt_file}[/dim]",
+            border_style="bright_cyan",
+            padding=(1, 2),
         ))
         return
 
@@ -355,19 +402,26 @@ def apply(
 
     effective_limit = limit if limit is not None else (0 if continuous else 1)
 
-    # Show launch banner
-    console.print()
-    console.print(Panel(
-        f"[bold bright_cyan]🚀 Launching Auto-Apply[/bold bright_cyan]\n\n"
-        f"  [bold]Limit:[/bold]    {'unlimited' if continuous else effective_limit}\n"
-        f"  [bold]Workers:[/bold]  {workers}\n"
-        f"  [bold]Model:[/bold]    {model}\n"
-        f"  [bold]Headless:[/bold] {headless}\n"
-        f"  [bold]Dry run:[/bold]  {dry_run}"
-        + (f"\n  [bold]Target:[/bold]   {url}" if url else ""),
-        border_style="cyan",
+    print_screen_header("Auto-Apply", "Submit job applications", "🚀")
+
+    # Config display
+    config_lines = [
+        f"  {'Limit':.<20} {'unlimited' if continuous else effective_limit}",
+        f"  {'Workers':.<20} {workers}",
+        f"  {'Model':.<20} {model}",
+        f"  {'Headless':.<20} {headless}",
+        f"  {'Dry run':.<20} {dry_run}",
+    ]
+    if url:
+        config_lines.append(f"  {'Target':.<20} {url}")
+
+    console.print(make_gradient_panel(
+        "\n".join(config_lines),
+        title="[bold bright_cyan]Configuration[/bold bright_cyan]",
+        border_style="bright_cyan",
         padding=(1, 2),
     ))
+    print_spacer()
 
     apply_main(
         limit=effective_limit,
@@ -390,8 +444,8 @@ def status() -> None:
 
     stats = get_stats()
 
-    console.print()
-    print_banner()
+    print_screen_header("Dashboard", "Pipeline statistics", "📊")
+    print_spacer()
 
     # Stats table
     stats_table = make_stats_table(stats)
@@ -399,54 +453,19 @@ def status() -> None:
 
     # Score distribution
     if stats["score_distribution"]:
-        console.print()
-        dist_table = Table(
-            title="[bold bright_yellow]Score Distribution[/bold bright_yellow]",
-            box=box.ROUNDED,
-            show_header=True,
-            header_style="bold yellow",
-            border_style="bright_yellow",
-        )
-        dist_table.add_column("Score", justify="center", width=6)
-        dist_table.add_column("Count", justify="right", width=6)
-        dist_table.add_column("Distribution", width=30)
-
-        max_count = max(count for _, count in stats["score_distribution"]) or 1
-        for score, count in stats["score_distribution"]:
-            bar_len = int(count / max_count * 25)
-            if score >= 7:
-                color = "green"
-                emoji = "🌟"
-            elif score >= 5:
-                color = "yellow"
-                emoji = "⭐"
-            else:
-                color = "red"
-                emoji = "💔"
-            bar = f"[{color}]{'█' * bar_len}{'░' * (25 - bar_len)}[/{color}]"
-            dist_table.add_row(f"{emoji} {score}", str(count), bar)
-
+        print_spacer()
+        dist_table = make_score_distribution_table(stats["score_distribution"])
         console.print(dist_table)
 
     # By site
     if stats["by_site"]:
-        console.print()
-        site_table = Table(
-            title="[bold bright_magenta]Jobs by Source[/bold bright_magenta]",
-            box=box.ROUNDED,
-            show_header=True,
-            header_style="bold magenta",
-            border_style="bright_magenta",
-        )
-        site_table.add_column("Source", width=25)
-        site_table.add_column("Count", justify="right", width=8)
-
-        for site, count in stats["by_site"]:
-            site_table.add_row(f"🌐 {site or 'Unknown'}", str(count))
-
+        print_spacer()
+        site_table = make_site_table(stats["by_site"])
         console.print(site_table)
 
-    console.print()
+    print_spacer()
+    print_rule("End of Report", "dim bright_cyan")
+    print_spacer()
 
 
 @app.command()
@@ -456,7 +475,9 @@ def dashboard() -> None:
 
     from joborion.dashboard import open_dashboard
 
-    open_dashboard()
+    print_screen_header("Dashboard", "Interactive web view", "🌐")
+    with print_spinner("Generating dashboard..."):
+        open_dashboard()
 
 
 @app.command()
@@ -471,10 +492,9 @@ def doctor() -> None:
 
     load_env()
 
-    console.print()
-    print_banner()
+    print_screen_header("System Doctor", "Setup diagnostics", "🩺")
 
-    results: list[tuple[str, str, str, str]] = []  # (check, status, emoji, note)
+    results: list[tuple[str, str, str, str]] = []
 
     # Tier 1 checks
     if PROFILE_PATH.exists():
@@ -541,43 +561,16 @@ def doctor() -> None:
         results.append(("CapSolver API key", "warn", "💡", "Optional: CAPTCHA solving"))
 
     # Render results
-    table = Table(
-        title="[bold bright_cyan]System Health[/bold bright_cyan]",
-        box=box.ROUNDED,
-        show_header=True,
-        header_style="bold cyan",
-        border_style="bright_cyan",
-    )
-    table.add_column("Component", style="bold", width=20)
-    table.add_column("Status", justify="center", width=8)
-    table.add_column("Details", width=35)
-
-    for check, status, emoji, note in results:
-        status_color = "green" if status == "ok" else "yellow" if status == "warn" else "red"
-        table.add_row(check, f"[{status_color}]{emoji}[/{status_color}]", f"[dim]{note}[/dim]")
-
+    table = make_doctor_table(results)
     console.print(table)
 
     # Tier summary
     from joborion.config import get_tier, TIER_LABELS
     tier = get_tier()
 
-    console.print()
-    console.print(Panel(
-        f"[bold]Tier {tier}: {TIER_LABELS[tier]}[/bold]\n\n"
-        + (
-            "[dim]→ Tier 2: scoring, tailoring (needs LLM API key)[/dim]\n"
-            "[dim]→ Tier 3: auto-apply (needs Claude CLI + Chrome)[/dim]"
-            if tier == 1
-            else "[dim]→ Tier 3: auto-apply (needs Claude CLI + Chrome)[/dim]"
-            if tier == 2
-            else "[green]All tiers unlocked![/green]"
-        ),
-        border_style="cyan",
-        padding=(1, 2),
-    ))
-
-    console.print()
+    print_spacer()
+    print_tier_panel(tier, TIER_LABELS)
+    print_spacer()
 
 
 if __name__ == "__main__":
