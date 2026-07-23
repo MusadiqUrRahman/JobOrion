@@ -6,6 +6,7 @@ smooth progress bars, tasteful transitions. Every screen polished.
 
 from __future__ import annotations
 
+import itertools
 from typing import Any
 
 from rich.console import Console, Group
@@ -419,6 +420,188 @@ class SpinnerContext:
 def print_spinner(message: str = "Working...") -> SpinnerContext:
     """Return a spinner context manager for use in `with` blocks."""
     return SpinnerContext(message)
+
+
+# ─── Hermes-Grade: Themed Spinners ───────────────────────────────────────────
+
+# Animated faces cycled while waiting (Hermes-style)
+WAITING_FACES = ["(⟳)", "(◆)", "(●)", "(★)", "(◇)", "(▲)"]
+
+# Thinking faces during model reasoning
+THINKING_FACES = ["(⚡)", "(◆)", "(●)", "(★)"]
+
+# Themed verbs for spinner messages
+THINKING_VERBS = [
+    "searching",
+    "analyzing",
+    "scoring",
+    "tailoring",
+    "generating",
+    "processing",
+    "evaluating",
+    "optimizing",
+]
+
+# Decorative wings/brackets around spinner
+WINGS = [
+    ("⟪ ", " ⟫"),
+    ("〈 ", " 〉"),
+    ("〖 ", " 〗"),
+]
+
+_face_cycle = itertools.cycle(WAITING_FACES)
+
+
+def print_tool_line(message: str, indent: int = 1) -> None:
+    """Print a tool output line with Hermes-style ┊ prefix."""
+    prefix = "┊ " * indent
+    text = Text()
+    text.append(f"  {prefix}", style="dim bright_cyan")
+    text.append(message, style="bright_white")
+    console.print(text)
+
+
+def print_stage_progress(
+    stage: str,
+    message: str,
+    progress: int = 0,
+    total: int = 100,
+) -> None:
+    """Print a streaming stage progress line with animated indicator."""
+    emoji = STAGE_EMOJI.get(stage, "▶")
+    color = STAGE_COLORS.get(stage, "white")
+    face = next(_face_cycle)
+
+    pct = int(progress / max(total, 1) * 100)
+    filled = int(pct / 100 * 20)
+    empty = 20 - filled
+
+    bar_color = "bright_green" if pct >= 80 else "bright_yellow" if pct >= 50 else "bright_cyan"
+
+    line = Text()
+    line.append(f"  {face} ", style="bold bright_cyan")
+    line.append(f"{emoji} {stage.upper()}", style=f"bold {color}")
+    line.append("  ", style="dim")
+    line.append("█" * filled, style=f"bold {bar_color}")
+    line.append("░" * empty, style="dim")
+    line.append(f" {pct:3d}%", style=f"bold {bar_color}")
+    line.append(f"  {message}", style="dim")
+
+    console.print(line)
+
+
+def print_streaming_update(stage: str, message: str) -> None:
+    """Print a streaming update with tool prefix."""
+    emoji = STAGE_EMOJI.get(stage, "▶")
+    color = STAGE_COLORS.get(stage, "white")
+
+    line = Text()
+    line.append("  ┊ ", style="dim bright_cyan")
+    line.append(f"{emoji} ", style=f"bold {color}")
+    line.append(message, style="bright_white")
+    console.print(line)
+
+
+# ─── Hermes-Grade: Compact Mode ──────────────────────────────────────────────
+
+def get_terminal_width() -> int:
+    """Get current terminal width."""
+    return console.width
+
+
+def is_compact_mode() -> bool:
+    """Check if terminal is in compact mode (< 76 columns)."""
+    return console.width < 76
+
+
+def is_minimal_mode() -> bool:
+    """Check if terminal is in minimal mode (< 52 columns)."""
+    return console.width < 52
+
+
+def print_compact_header(title: str, icon: str = "") -> None:
+    """Print a compact header for narrow terminals."""
+    if is_minimal_mode():
+        header = Text()
+        if icon:
+            header.append(f"{icon} ", style="bold bright_cyan")
+        header.append(title, style="bold bright_white")
+        console.print(header)
+    elif is_compact_mode():
+        header = Text()
+        if icon:
+            header.append(f"{icon} ", style="bold bright_cyan")
+        header.append(title, style="bold bright_white")
+        console.print(Panel(header, border_style="bright_cyan", padding=(0, 1)))
+    else:
+        print_screen_header(title, icon=icon)
+
+
+# ─── Hermes-Grade: Status Bar ────────────────────────────────────────────────
+
+def print_status_bar(
+    model: str = "",
+    tokens_used: int = 0,
+    tokens_max: int = 0,
+    cost: float = 0.0,
+    duration: str = "",
+    stage: str = "",
+) -> None:
+    """Print a Hermes-style status bar above the input area."""
+    bar = Text()
+    bar.append("─" * console.width, style="dim bright_cyan")
+    console.print(bar)
+
+    status = Text()
+    status.append(" ◆ ", style="bold bright_cyan")
+
+    # Model
+    if model:
+        truncated = model[:26] + "…" if len(model) > 26 else model
+        status.append(truncated, style="bold bright_white")
+        status.append("  │  ", style="dim")
+
+    # Token count
+    if tokens_max > 0:
+        pct = int(tokens_used / tokens_max * 100)
+        status.append(f"{tokens_used}/{tokens_max}", style="bright_white")
+        status.append(" ", style="dim")
+
+        # Context bar with color thresholds
+        bar_filled = int(pct / 100 * 10)
+        bar_empty = 10 - bar_filled
+        if pct >= 95:
+            ctx_color = "bright_red"
+        elif pct >= 80:
+            ctx_color = "bright_yellow"
+        elif pct >= 50:
+            ctx_color = "bright_cyan"
+        else:
+            ctx_color = "bright_green"
+        status.append("[", style="dim")
+        status.append("█" * bar_filled, style=f"bold {ctx_color}")
+        status.append("░" * bar_empty, style="dim")
+        status.append("]", style="dim")
+        status.append("  │  ", style="dim")
+
+    # Cost
+    if cost > 0:
+        status.append(f"${cost:.4f}", style="bold bright_yellow")
+        status.append("  │  ", style="dim")
+
+    # Duration
+    if duration:
+        status.append(f"⏱ {duration}", style="bright_white")
+        status.append("  │  ", style="dim")
+
+    # Current stage
+    if stage:
+        emoji = STAGE_EMOJI.get(stage, "▶")
+        color = STAGE_COLORS.get(stage, "white")
+        status.append(f"{emoji} {stage}", style=f"bold {color}")
+
+    console.print(status)
+    console.print("─" * console.width, style="dim bright_cyan")
 
 
 # ─── Messages ─────────────────────────────────────────────────────────────────
