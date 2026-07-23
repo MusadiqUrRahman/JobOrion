@@ -5,6 +5,7 @@ pipeline stage are created up front so any stage can run independently
 without migration ordering issues.
 """
 
+import json
 import sqlite3
 import threading
 import uuid
@@ -231,6 +232,22 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
             tokens_out            INTEGER DEFAULT 0,
             cost_usd              REAL DEFAULT 0.0,
             recorded_at           TEXT
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS reflection_log (
+            reflection_id         TEXT PRIMARY KEY,
+            run_id                TEXT,
+            analyzed_at           TEXT,
+            overall_rating        TEXT,
+            what_went_well        TEXT,
+            what_failed           TEXT,
+            strategy_changes      TEXT,
+            memory_updates        TEXT,
+            recommendations       TEXT,
+            scoring_calibration   TEXT,
+            cost_analysis         TEXT
         )
     """)
 
@@ -1084,3 +1101,140 @@ def get_total_cost(conn: sqlite3.Connection | None = None) -> float:
 
     row = conn.execute("SELECT COALESCE(SUM(cost_usd), 0.0) FROM cost_ledger").fetchone()
     return float(row[0]) if row else 0.0
+
+
+# ---------------------------------------------------------------------------
+# Reflection Log
+# ---------------------------------------------------------------------------
+
+def store_reflection(record: dict, conn: sqlite3.Connection | None = None) -> str:
+    """Store a reflection record.
+
+    Args:
+        record: Dict with keys: run_id, overall_rating, what_went_well (list),
+                what_failed (list), strategy_changes (list), memory_updates (list),
+                recommendations (list), scoring_calibration (dict), cost_analysis (dict).
+        conn: Database connection. Uses get_connection() if None.
+
+    Returns:
+        The generated reflection_id.
+    """
+    if conn is None:
+        conn = get_connection()
+
+    import uuid
+    ref_id = f"refl-{uuid.uuid4().hex[:12]}"
+    now = datetime.now(timezone.utc).isoformat()
+
+    def _json_or_str(v):
+        if isinstance(v, str):
+            return v
+        return json.dumps(v)
+
+    conn.execute(
+        "INSERT INTO reflection_log "
+        "(reflection_id, run_id, analyzed_at, overall_rating, what_went_well, "
+        "what_failed, strategy_changes, memory_updates, recommendations, "
+        "scoring_calibration, cost_analysis) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            ref_id,
+            record.get("run_id", ""),
+            now,
+            record.get("overall_rating", "ok"),
+            _json_or_str(record.get("what_went_well", [])),
+            _json_or_str(record.get("what_failed", [])),
+            _json_or_str(record.get("strategy_changes", [])),
+            _json_or_str(record.get("memory_updates", [])),
+            _json_or_str(record.get("recommendations", [])),
+            _json_or_str(record.get("scoring_calibration", {})),
+            _json_or_str(record.get("cost_analysis", {})),
+        ),
+    )
+    conn.commit()
+    return ref_id
+
+
+def get_reflection(reflection_id: str, conn: sqlite3.Connection | None = None) -> dict | None:
+    """Retrieve a reflection record by ID.
+
+    Args:
+        reflection_id: The reflection ID to look up.
+        conn: Database connection. Uses get_connection() if None.
+
+    Returns:
+        Dict with reflection data, or None if not found.
+    """
+    if conn is None:
+        conn = get_connection()
+
+    row = conn.execute(
+        "SELECT * FROM reflection_log WHERE reflection_id = ?", (reflection_id,)
+    ).fetchone()
+    if row is None:
+        return None
+    return _row_to_reflection(row, conn)
+
+
+def get_recent_reflections(n: int = 5, conn: sqlite3.Connection | None = None) -> list[dict]:
+    """Get the N most recent reflection records.
+
+    Args:
+        n: Number of records to return.
+        conn: Database connection. Uses get_connection() if None.
+
+    Returns:
+        List of reflection dicts, most recent first.
+    """
+    if conn is None:
+        conn = get_connection()
+
+    rows = conn.execute(
+        "SELECT * FROM reflection_log ORDER BY analyzed_at DESC LIMIT ?", (n,)
+    ).fetchall()
+    return [_row_to_reflection(r, conn) for r in rows]
+
+
+def get_reflections_for_run(run_id: str, conn: sqlite3.Connection | None = None) -> list[dict]:
+    """Get all reflection records for a specific run.
+
+    Args:
+        run_id: The run ID to filter by.
+        conn: Database connection. Uses get_connection() if None.
+
+    Returns:
+        List of reflection dicts.
+    """
+    if conn is None:
+        conn = get_connection()
+
+    rows = conn.execute(
+        "SELECT * FROM reflection_log WHERE run_id = ? ORDER BY analyzed_at DESC",
+        (run_id,),
+    ).fetchall()
+    return [_row_to_reflection(r, conn) for r in rows]
+
+
+def _row_to_reflection(row, conn) -> dict:
+    """Convert a database row to a reflection dict."""
+    cols = [desc[0] for desc in conn.execute("SELECT * FROM reflection_log LIMIT 0").description]
+    d = dict(zip(cols, row))
+
+    def _parse_json(v):
+        if v is None:
+            return []
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                return v
+        return v
+
+    for key in ("what_went_well", "what_failed", "strategy_changes",
+                "memory_updates", "recommendations"):
+        d[key] = _parse_json(d.get(key))
+
+    for key in ("scoring_calibration", "cost_analysis"):
+        d[key] = _parse_json(d.get(key))
+
+    return d

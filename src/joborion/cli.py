@@ -104,6 +104,89 @@ def plan(
 
 
 @app.command()
+def reflect(
+    run_id: Optional[str] = typer.Option(None, "--run-id", help="Analyze a specific run."),
+    last: int = typer.Option(1, "--last", help="Analyze the last N runs."),
+) -> None:
+    """Analyze pipeline runs and generate insights."""
+    from joborion.agent.reflector import Reflector
+    from joborion.database import (
+        store_reflection, get_recent_runs, get_connection,
+    )
+
+    _bootstrap()
+    conn = get_connection()
+    reflector = Reflector(conn)
+
+    if run_id:
+        # Analyze specific run
+        result = reflector.analyze_run(run_id)
+        ref_id = store_reflection(result)
+        _print_reflection(result, ref_id)
+    else:
+        # Analyze last N runs
+        runs = get_recent_runs(n=last)
+        if not runs:
+            console.print("[yellow]No runs found to analyze.[/yellow]")
+            return
+
+        for run in runs:
+            rid = run.get("run_id", "")
+            result = reflector.analyze_run(rid)
+            ref_id = store_reflection(result)
+            _print_reflection(result, ref_id)
+            console.print()
+
+
+def _print_reflection(result: dict, ref_id: str) -> None:
+    """Print a reflection record in a formatted table."""
+    from rich.panel import Panel
+
+    rating = result["overall_rating"]
+    color = {"good": "green", "ok": "yellow", "poor": "red"}.get(rating, "white")
+
+    console.print()
+    console.print(Panel.fit(
+        f"[bold]Reflection[/bold] ({ref_id})\n"
+        f"Run: {result.get('run_id', '?')}",
+        border_style=color,
+    ))
+
+    # Rating
+    console.print(f"  Rating: [{color}]{rating.upper()}[/{color}]")
+
+    # What went well
+    if result.get("what_went_well"):
+        console.print("\n  [bold green]What went well:[/bold green]")
+        for item in result["what_went_well"]:
+            console.print(f"    + {item}")
+
+    # What failed
+    if result.get("what_failed"):
+        console.print("\n  [bold red]What failed:[/bold red]")
+        for item in result["what_failed"]:
+            console.print(f"    - {item}")
+
+    # Recommendations
+    if result.get("recommendations"):
+        console.print("\n  [bold cyan]Recommendations:[/bold cyan]")
+        for i, rec in enumerate(result["recommendations"], 1):
+            console.print(f"    {i}. {rec}")
+
+    # Score calibration
+    cal = result.get("scoring_calibration", {})
+    if cal.get("avg_score"):
+        console.print("\n  [bold]Score calibration:[/bold]")
+        console.print(f"    Avg: {cal['avg_score']}, Range: {cal.get('score_range', '?')}")
+        console.print(f"    {cal.get('assessment', '')}")
+
+    # Cost
+    cost = result.get("cost_analysis", {})
+    if cost.get("total", 0) > 0:
+        console.print(f"\n  [bold]Cost:[/bold] ${cost['total']:.4f}")
+
+
+@app.command()
 def run(
     stages: Optional[list[str]] = typer.Argument(
         None,
