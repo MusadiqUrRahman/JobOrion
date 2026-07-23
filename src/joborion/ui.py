@@ -6,7 +6,6 @@ smooth progress bars, tasteful transitions. Every screen polished.
 
 from __future__ import annotations
 
-import time
 from typing import Any
 
 from rich.console import Console, Group
@@ -104,14 +103,137 @@ def print_banner() -> None:
     console.print()
 
 
+# ─── Startup Screen ──────────────────────────────────────────────────────────
+
+def _get_version() -> str:
+    try:
+        from joborion import __version__
+        return __version__
+    except Exception:
+        return "0.3.0"
+
+
+def _get_tier_info() -> tuple[int, str]:
+    try:
+        from joborion.config import get_tier, TIER_LABELS
+        tier = get_tier()
+        return tier, TIER_LABELS[tier]
+    except Exception:
+        return 1, "Discovery"
+
+
+def _get_stats_summary() -> dict[str, int]:
+    try:
+        from joborion.database import get_stats
+        stats = get_stats()
+        return {
+            "jobs": stats.get("total", 0),
+            "scored": stats.get("scored", 0),
+            "applied": stats.get("applied", 0),
+        }
+    except Exception:
+        return {"jobs": 0, "scored": 0, "applied": 0}
+
+
+def print_startup_screen() -> None:
+    """Print the premium startup screen with banner, pipeline diagram, and system info."""
+    import shutil
+    import os
+
+    version = _get_version()
+    tier, tier_label = _get_tier_info()
+    stats = _get_stats_summary()
+
+    # ── Banner ──
+    art = _render_banner_art()
+    lines = art.split("\n")
+    group_parts: list[Any] = []
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue
+        color_idx = int(i / max(len(lines) - 1, 1) * (len(BANNER_GRADIENT) - 1))
+        color = BANNER_GRADIENT[color_idx]
+        group_parts.append(Text(f"  {line}", style=f"bold {color}"))
+    console.print(Group(*group_parts))
+
+    # ── Tagline + Version ──
+    tagline = Text()
+    tagline.append("  AI-Powered Job Application Pipeline", style="dim bright_white")
+    tagline.append(f"  v{version}", style="dim bright_cyan")
+    group_parts.append(tagline)
+    console.print(tagline)
+    console.print()
+
+    # ── Pipeline Diagram ──
+    pipeline = Text()
+    pipeline.append("  ╭─────────────────────────────────────────────────────────────────────╮\n", style="dim bright_cyan")
+    pipeline.append("  │", style="dim bright_cyan")
+    pipeline.append("  ⚡ PIPELINE", style="bold bright_white")
+    pipeline.append("                                                                   │\n", style="dim bright_cyan")
+    pipeline.append("  │", style="dim bright_cyan")
+    pipeline.append("                                                                     │\n", style="dim bright_cyan")
+    pipeline.append("  │", style="dim bright_cyan")
+    pipeline.append("   🔍 SEARCH", style="bold bright_cyan")
+    pipeline.append("  ───→  ", style="dim bright_cyan")
+    pipeline.append("📋 DETAILS", style="bold bright_blue")
+    pipeline.append("  ───→  ", style="dim bright_cyan")
+    pipeline.append("⚡ EVAL", style="bold bright_yellow")
+    pipeline.append("                                                              │\n", style="dim bright_cyan")
+    pipeline.append("  │", style="dim bright_cyan")
+    pipeline.append("                                                                     │\n", style="dim bright_cyan")
+    pipeline.append("  │", style="dim bright_cyan")
+    pipeline.append("   ✂️  TAILOR", style="bold bright_green")
+    pipeline.append("  ───→  ", style="dim bright_cyan")
+    pipeline.append("✉️  LETTER", style="bold bright_magenta")
+    pipeline.append("  ───→  ", style="dim bright_cyan")
+    pipeline.append("📄 EXPORT", style="bold bright_white")
+    pipeline.append("                                                           │\n", style="dim bright_cyan")
+    pipeline.append("  │", style="dim bright_cyan")
+    pipeline.append("                                                                     │\n", style="dim bright_cyan")
+    pipeline.append("  ╰─────────────────────────────────────────────────────────────────────╯\n", style="dim bright_cyan")
+    console.print(pipeline)
+
+    # ── Info Grid ──
+    has_claude = shutil.which("claude") is not None
+    has_chrome = False
+    try:
+        from joborion.config import get_chrome_path
+        get_chrome_path()
+        has_chrome = True
+    except Exception:
+        pass
+
+    has_llm = any([
+        os.environ.get("GEMINI_API_KEY"),
+        os.environ.get("OPENAI_API_KEY"),
+        os.environ.get("LLM_URL"),
+    ])
+
+    info = Table.grid(padding=(0, 2))
+    info.add_column(style="bold bright_white", width=18)
+    info.add_column(style="bright_white")
+
+    # Row 1
+    tier_color = {1: "bright_yellow", 2: "bright_cyan", 3: "bright_green"}.get(tier, "white")
+    info.add_row("  🎯 Tier", Text(f"{tier} — {tier_label}", style=f"bold {tier_color}"))
+    info.add_row("  📊 Jobs", Text(f"{stats['jobs']} found  |  {stats['scored']} scored  |  {stats['applied']} applied", style="bright_white"))
+    info.add_row("  🤖 LLM", Text("Ready" if has_llm else "Not configured", style="bright_green" if has_llm else "dim bright_red"))
+    info.add_row("  🌐 Browser", Text("Ready" if has_chrome else "Not found", style="bright_green" if has_chrome else "dim bright_red"))
+    info.add_row("  🤖 Claude CLI", Text("Ready" if has_claude else "Not found", style="bright_green" if has_claude else "dim bright_red"))
+
+    console.print(Panel(
+        info,
+        title="[bold bright_cyan]System Status[/bold bright_cyan]",
+        border_style="bright_cyan",
+        box=box.ROUNDED,
+        padding=(0, 1),
+    ))
+    console.print()
+
+
 def print_splash() -> None:
     """Print a brief animated splash when launching."""
-    with console.status("[bold bright_cyan]Initializing JobOrion...", spinner="dots"):
-        time.sleep(0.4)
-    print_banner()
-
-
-# ─── Decorative Elements ─────────────────────────────────────────────────────
+    print_startup_screen()
 
 
 def print_rule(title: str = "", style: str = "dim bright_cyan") -> None:

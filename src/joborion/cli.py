@@ -10,6 +10,7 @@ import typer
 from joborion.ui import (
     console,
     print_banner,
+    print_startup_screen,
     print_screen_header,
     print_goal_panel,
     print_rule,
@@ -78,6 +79,8 @@ def main(
     ),
 ) -> None:
     """[bold bright_cyan]JobOrion[/bold bright_cyan] — AI-powered job application pipeline."""
+    if not version:
+        print_startup_screen()
 
 
 @app.command()
