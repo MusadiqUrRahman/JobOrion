@@ -2,11 +2,17 @@
 
 Takes a natural language goal and produces a Plan with ordered PlanSteps,
 each mapped to a specific tool with parameters and cost estimates.
+Supports LLM-powered planning with keyword-based fallback.
 """
 
 from __future__ import annotations
 
+import json
+import logging
+import re
 from dataclasses import dataclass, field
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -86,15 +92,181 @@ _STAGE_TOOLS: dict[str, list[tuple[str, dict, str, float, int]]] = {
 }
 
 
+_KNOWN_TOOLS: list[dict[str, str]] = [
+    {"name": "search_jobspy", "description": "Search job boards via JobSpy (LinkedIn, Indeed, etc.)", "params": "search_query (optional), limit (optional)"},
+    {"name": "search_workday", "description": "Search corporate career sites (Workday)", "params": "search_query (optional), limit (optional)"},
+    {"name": "search_ai_sites", "description": "AI-powered scraping of career pages", "params": "search_query (optional), limit (optional)"},
+    {"name": "fetch_details", "description": "Enrich jobs with full descriptions from career pages", "params": "url (optional), limit (optional)"},
+    {"name": "enrich_single", "description": "Enrich a single job by URL with full description", "params": "url (required)"},
+    {"name": "enrich_batch", "description": "Enrich multiple jobs with full descriptions", "params": "limit (optional)"},
+    {"name": "evaluate_jobs", "description": "Score all enriched jobs against resume for fit", "params": "limit (optional)"},
+    {"name": "score_single", "description": "Score a single job by URL against resume", "params": "url (required)"},
+    {"name": "score_batch", "description": "Score multiple jobs against resume", "params": "limit (optional)"},
+    {"name": "tailor_resume", "description": "Generate tailored resume for a job", "params": "url (required), min_score (optional)"},
+    {"name": "write_letter", "description": "Write cover letter for a job", "params": "url (required), min_score (optional)"},
+    {"name": "export_pdf", "description": "Convert documents to PDF", "params": "input_path (required)"},
+    {"name": "query_jobs", "description": "Query jobs from the database with filters", "params": "stage (optional), min_score (optional), limit (optional)"},
+    {"name": "get_job_detail", "description": "Get full details for a specific job by URL", "params": "url (required)"},
+    {"name": "get_pipeline_stats", "description": "Get pipeline statistics and job counts by stage", "params": "none"},
+]
+
+_LLM_SYSTEM_PROMPT = """You are a job search pipeline planner. Given a user goal, produce a JSON array of execution steps.
+
+Available tools:
+{tools}
+
+For each step, output a JSON object with:
+- "tool": tool name (must match exactly)
+- "params": dict of parameters to pass
+- "description": human-readable description of this step
+
+Rules:
+- Order steps logically: search → details → evaluate → tailor → letter → export
+- Use search_query parameter for search tools when the goal mentions specific skills/roles
+- Use min_score=8 for "best/top/senior" goals, min_score=7 for "good" goals
+- Only include tools relevant to the goal
+- Return ONLY the JSON array, no other text
+
+Example for "find senior Python jobs":
+[
+  {{"tool": "search_jobspy", "params": {{"search_query": "senior python"}}, "description": "Search job boards for senior Python roles"}},
+  {{"tool": "search_workday", "params": {{"search_query": "senior python"}}, "description": "Search corporate career sites for senior Python roles"}},
+  {{"tool": "fetch_details", "params": {{"limit": 100}}, "description": "Enrich discovered jobs with full descriptions"}},
+  {{"tool": "evaluate_jobs", "params": {{}}, "description": "Score all enriched jobs against resume"}}
+]"""
+
+
+class LLMPlanner:
+    """LLM-powered planner that decomposes goals into tool execution steps.
+
+    Uses an LLM client to understand natural language goals and produce
+    structured execution plans. Falls back to None on any failure so
+    the caller can use the keyword planner.
+    """
+
+    def __init__(self, client: object) -> None:
+        self._client = client
+
+    def plan(self, goal: str) -> Plan | None:
+        """Generate an execution plan using the LLM.
+
+        Args:
+            goal: User's goal string.
+
+        Returns:
+            Plan with ordered steps, or None if LLM planning fails.
+        """
+        tools_text = "\n".join(
+            f"- {t['name']}: {t['description']} (params: {t['params']})"
+            for t in _KNOWN_TOOLS
+        )
+        system_prompt = _LLM_SYSTEM_PROMPT.format(tools=tools_text)
+
+        try:
+            raw = self._client.chat(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": goal},
+                ],
+                temperature=0.0,
+                max_tokens=2048,
+            )
+        except Exception as e:
+            log.warning("LLM planner call failed: %s", e)
+            return None
+
+        steps = _parse_llm_response(raw)
+        if steps is None:
+            return None
+
+        plan_steps = _validate_steps(steps)
+        if not plan_steps:
+            return None
+
+        return Plan(goal=goal, steps=plan_steps)
+
+
+def _parse_llm_response(raw: str) -> list[dict] | None:
+    """Extract a JSON array from LLM response text.
+
+    Handles cases where the LLM wraps JSON in markdown code fences.
+    """
+    text = raw.strip()
+
+    # Strip markdown code fences
+    fence_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
+    if fence_match:
+        text = fence_match.group(1).strip()
+
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        # Try to find the first [ ... ] block
+        bracket_match = re.search(r"\[.*\]", text, re.DOTALL)
+        if bracket_match:
+            try:
+                data = json.loads(bracket_match.group(0))
+            except json.JSONDecodeError:
+                log.warning("Failed to parse LLM planner response as JSON")
+                return None
+        else:
+            log.warning("No JSON array found in LLM planner response")
+            return None
+
+    if not isinstance(data, list):
+        log.warning("LLM planner response is not a JSON array")
+        return None
+
+    return data
+
+
+def _validate_steps(raw_steps: list[dict]) -> list[PlanStep]:
+    """Validate and convert raw JSON steps into PlanStep objects.
+
+    Filters out steps with unknown tools and fills in defaults.
+    """
+    known_tool_names = {t["name"] for t in _KNOWN_TOOLS}
+    valid: list[PlanStep] = []
+
+    for i, step in enumerate(raw_steps):
+        tool = step.get("tool", "")
+        if tool not in known_tool_names:
+            log.warning("LLM planner suggested unknown tool '%s', skipping", tool)
+            continue
+
+        params = step.get("params", {})
+        if not isinstance(params, dict):
+            params = {}
+
+        description = step.get("description", f"Execute {tool}")
+
+        valid.append(PlanStep(
+            tool=tool,
+            params=params,
+            description=description,
+            cost_estimate=0.0,
+            duration_estimate_ms=0,
+            depends_on=i - 1 if i > 0 else None,
+        ))
+
+    return valid
+
+
 class Planner:
     """Decomposes natural language goals into ordered execution plans.
 
-    Analyzes the goal text for keywords indicating which pipeline stages
-    are needed, then builds an ordered plan with cost and duration estimates.
+    Tries LLM-powered planning first (if client provided), falls back to
+    keyword-based stage detection and step building.
     """
+
+    def __init__(self, client: object | None = None) -> None:
+        self._client = client
+        self._llm_planner = LLMPlanner(client) if client else None
 
     def plan(self, goal: str) -> Plan:
         """Generate an execution plan from a natural language goal.
+
+        Tries LLM planner first if available, falls back to keyword matching.
 
         Args:
             goal: User's goal string (e.g., "Find 10 remote Python jobs").
@@ -102,6 +274,13 @@ class Planner:
         Returns:
             Plan with ordered steps, cost estimates, and duration estimates.
         """
+        if self._llm_planner:
+            llm_plan = self._llm_planner.plan(goal)
+            if llm_plan and llm_plan.steps:
+                log.info("LLM planner produced %d steps", len(llm_plan.steps))
+                return llm_plan
+            log.info("LLM planner returned no steps, falling back to keyword planner")
+
         goal_lower = goal.lower()
         stages = self._detect_stages(goal_lower)
         steps = self._build_steps(stages, goal_lower)

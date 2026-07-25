@@ -43,13 +43,23 @@ class Orchestrator:
         self._accumulated_cost: float = 0.0
         self._call_count: int = 0
         self._error_count: int = 0
-        self._planner = Planner()
+        self._planner = self._build_planner()
         self.context = ContextManager()
         self._registry = registry or build_default_registry()
         self._failed_tools: set[str] = set()
         self._auto = auto
         self._yes = yes
         self._semi = semi
+
+    @staticmethod
+    def _build_planner() -> Planner:
+        """Create a Planner with LLM client if available, keyword fallback otherwise."""
+        try:
+            from joborion.llm import get_client
+            client = get_client()
+            return Planner(client=client)
+        except Exception:
+            return Planner()
 
     def plan(self) -> Plan:
         """Generate an execution plan without running it.
