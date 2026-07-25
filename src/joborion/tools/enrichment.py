@@ -23,13 +23,22 @@ class EnrichSingleJobTool(Tool):
             return ActionResult(self.name, "error", {}, 0.0, 0, "url is required")
 
         try:
-            from joborion.enrichment.page_scraper import enrich_jobs
-            result = enrich_jobs(limit=1)
+            from joborion.database import get_connection
+            from joborion.enrichment.page_scraper import scrape_site_batch
+
+            conn = get_connection()
+            row = conn.execute("SELECT url, title, site FROM jobs WHERE url = ?", (url,)).fetchone()
+            if not row:
+                return ActionResult(self.name, "error", {"url": url}, 0.0, 0, f"Job not found: {url}")
+
+            site = row[2]
+            result = scrape_site_batch(conn, site, [(row[0], row[1])], delay=0)
+
             elapsed_ms = int((time.time() - t0) * 1000)
             return ActionResult(
                 action=self.name,
                 status="ok",
-                details={"url": url, "processed": result.get("ok", 0)},
+                details={"url": url, "ok": result.get("ok", 0), "error": result.get("error", 0)},
                 cost=0.0,
                 duration_ms=elapsed_ms,
                 error=None,

@@ -23,13 +23,32 @@ class ScoreSingleJobTool(Tool):
             return ActionResult(self.name, "error", {}, 0.0, 0, "url is required")
 
         try:
-            from joborion.scoring.fit_scorer import score_jobs
-            result = score_jobs(limit=1)
+            from joborion.config import RESUME_PATH
+            from joborion.database import get_connection
+            from joborion.scoring.fit_scorer import score_job
+            from datetime import datetime, timezone
+
+            resume_text = RESUME_PATH.read_text(encoding="utf-8")
+            conn = get_connection()
+            row = conn.execute("SELECT * FROM jobs WHERE url = ?", (url,)).fetchone()
+            if not row:
+                return ActionResult(self.name, "error", {"url": url}, 0.0, 0, f"Job not found: {url}")
+
+            job = dict(zip(row.keys(), row))
+            result = score_job(resume_text, job)
+
+            now = datetime.now(timezone.utc).isoformat()
+            conn.execute(
+                "UPDATE jobs SET fit_score = ?, score_reasoning = ?, scored_at = ? WHERE url = ?",
+                (result["score"], f"{result['keywords']}\n{result['reasoning']}", now, url),
+            )
+            conn.commit()
+
             elapsed_ms = int((time.time() - t0) * 1000)
             return ActionResult(
                 action=self.name,
                 status="ok",
-                details={"url": url, "scored": result.get("scored", 0)},
+                details={"url": url, "score": result["score"], "keywords": result["keywords"]},
                 cost=0.0,
                 duration_ms=elapsed_ms,
                 error=None,
