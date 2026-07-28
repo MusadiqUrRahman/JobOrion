@@ -37,6 +37,13 @@ log = logging.getLogger(__name__)
 console = Console()
 
 
+def _safe_cost() -> float:
+    try:
+        return get_client().cost_usd
+    except RuntimeError:
+        return 0.0
+
+
 # ---------------------------------------------------------------------------
 # Stage definitions
 # ---------------------------------------------------------------------------
@@ -574,7 +581,7 @@ def run_pipeline(
         "jobs_tailored": final_stats.get("tailored", 0),
         "jobs_covered": final_stats.get("with_cover_letter", 0),
         "jobs_applied": final_stats.get("applied", 0),
-        "total_cost": get_client().cost_usd,
+        "total_cost": _safe_cost(),
         "total_duration_ms": int(result.get("elapsed", 0) * 1000),
         "status": "completed" if not result.get("errors") else "partial",
         "errors": str(result.get("errors")) if result.get("errors") else None,
