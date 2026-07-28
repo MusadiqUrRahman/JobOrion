@@ -484,6 +484,29 @@ def dashboard() -> None:
 
 
 @app.command()
+def open() -> None:
+    """Open your data folder in the file explorer."""
+    import subprocess
+    import sys
+
+    from joborion.config import APP_DIR
+
+    if not APP_DIR.exists():
+        print_error(f"Data folder not found: {APP_DIR}")
+        print_warning("Run 'joborion init' first to set up your profile.")
+        raise typer.Exit(1)
+
+    print_success(f"Opening: {APP_DIR}")
+
+    if sys.platform == "win32":
+        subprocess.Popen(["explorer", str(APP_DIR)])
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", str(APP_DIR)])
+    else:
+        subprocess.Popen(["xdg-open", str(APP_DIR)])
+
+
+@app.command()
 def doctor() -> None:
     """Check your setup and diagnose missing requirements."""
     import shutil
