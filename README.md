@@ -17,20 +17,8 @@ pip install -e .
 # Initialize (creates ~/.joborion/ with config files)
 joborion init
 
-# Run the full pipeline
+# One command — runs everything: search → score → tailor → cover letters
 joborion run
-
-# Run individual stages
-joborion run search
-joborion run details
-joborion run evaluate
-joborion run tailor
-joborion run letter
-joborion run export
-
-# Goal-driven mode (AI plans and executes)
-joborion plan "Find 10 remote Python jobs"
-joborion run --goal "Find senior React jobs, score them, tailor resumes"
 ```
 
 ## Tier System
@@ -43,21 +31,33 @@ JobOrion unlocks features progressively based on installed dependencies:
 | 2 - AI Scoring | Fit scoring, resume tailoring, cover letters | + LLM API key |
 | 3 - Auto-Apply | Automated applications via Chrome | + Claude Code CLI + Chrome |
 
-## Commands
+## All Commands
 
+### Setup
 ```bash
-joborion --help              # Show all commands
-joborion init                # Set up config and profile
-joborion run                 # Run full pipeline
-joborion run search           # Scrape job boards
-joborion run details         # Enrich job descriptions
-joborion run evaluate        # Score jobs against your resume
-joborion run tailor          # Tailor resumes for top jobs
-joborion run letter          # Generate cover letters
-joborion run export          # Convert tailored resumes to PDF
-joborion status              # Show pipeline status
-joborion dashboard           # Generate HTML dashboard
-joborion apply               # Auto-apply to jobs (Tier 3)
+joborion init       # First-time setup (profile, resume, API key)
+joborion doctor     # Check your setup and diagnose issues
+joborion open       # Open ~/.joborion/ in file explorer
+joborion status     # Show pipeline statistics
+```
+
+### Pipeline (runs sequentially)
+```bash
+joborion run                     # Run ALL stages (search → details → evaluate → tailor → letter → export)
+joborion run search              # Stage 1: Scrape job boards
+joborion run details             # Stage 2: Enrich job descriptions
+joborion run evaluate            # Stage 3: Score jobs vs your resume (needs LLM)
+joborion run tailor              # Stage 4: Tailor resumes for top jobs (needs LLM)
+joborion run letter              # Stage 5: Generate cover letters (needs LLM)
+joborion run export              # Stage 6: Convert to PDF
+```
+
+### Advanced
+```bash
+joborion run --goal "your goal"  # AI plans and executes from a description
+joborion apply                   # Auto-apply via browser (Tier 3)
+joborion plan "your goal"        # Preview plan without executing
+joborion dashboard               # Generate HTML dashboard
 ```
 
 ## Configuration
