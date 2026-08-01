@@ -123,6 +123,7 @@ Types: `feat:`, `fix:`, `test:`, `docs:`, `refactor:`, `chore:`, `perf:`
 
 ## Security Rules
 
+- **Personal data must NEVER be pushed to GitHub.** This includes profile/resume data, CV files (e.g. `cv-data.json`, `cv.txt`), application materials, emails, or any file containing real user information. Never stage, commit, or push such files. Keep them untracked and locally only.
 - Never commit secrets, API keys, or tokens
 - Never log sensitive data
 - Use environment variables for secrets
