@@ -36,7 +36,7 @@ JobOrion unlocks features progressively based on installed dependencies:
 ### Setup
 ```bash
 joborion init       # First-time setup (profile, resume, API key)
-joborion doctor     # Check your setup and diagnose issues
+joborion check     # Check your setup and diagnose issues
 joborion open       # Open ~/.joborion/ in file explorer
 joborion status     # Show pipeline statistics
 ```

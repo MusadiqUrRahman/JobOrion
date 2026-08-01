@@ -24,7 +24,7 @@ from joborion.database import (
     get_run_cost,
     get_total_cost,
 )
-from joborion.llm import LLMClient, BudgetExceeded
+from joborion.llm import LLMClient, BudgetExceeded, OpenAICompatBackend
 
 
 @pytest.fixture
@@ -330,7 +330,7 @@ class TestBudgetEnforcement:
 
     def test_set_budget(self):
         """set_budget updates limits correctly."""
-        client = LLMClient("http://localhost", "test-model", "key")
+        client = LLMClient([OpenAICompatBackend("test", "key", "http://localhost", "test-model")])
         client.set_budget(max_calls=10, max_cost=2.50, run_id="test_run")
 
         assert client._max_calls_per_run == 10
@@ -340,7 +340,7 @@ class TestBudgetEnforcement:
 
     def test_budget_remaining(self):
         """budget_remaining returns correct value."""
-        client = LLMClient("http://localhost", "test-model", "key")
+        client = LLMClient([OpenAICompatBackend("test", "key", "http://localhost", "test-model")])
         client.set_budget(max_cost=5.0)
         client._cost_usd = 1.5
 
@@ -349,7 +349,7 @@ class TestBudgetEnforcement:
 
     def test_budget_remaining_floor(self):
         """budget_remaining never goes below 0."""
-        client = LLMClient("http://localhost", "test-model", "key")
+        client = LLMClient([OpenAICompatBackend("test", "key", "http://localhost", "test-model")])
         client.set_budget(max_cost=1.0)
         client._cost_usd = 2.0
 
@@ -358,7 +358,7 @@ class TestBudgetEnforcement:
 
     def test_cost_usd_property(self):
         """cost_usd property returns accumulated cost."""
-        client = LLMClient("http://localhost", "test-model", "key")
+        client = LLMClient([OpenAICompatBackend("test", "key", "http://localhost", "test-model")])
         client._cost_usd = 3.14
 
         assert client.cost_usd == pytest.approx(3.14)
@@ -366,7 +366,7 @@ class TestBudgetEnforcement:
 
     def test_reset_budget(self):
         """reset_budget clears call count and cost."""
-        client = LLMClient("http://localhost", "test-model", "key")
+        client = LLMClient([OpenAICompatBackend("test", "key", "http://localhost", "test-model")])
         client._call_count = 5
         client._cost_usd = 2.5
         client.reset_budget()
@@ -377,7 +377,7 @@ class TestBudgetEnforcement:
 
     def test_budget_exceeded_on_cost(self):
         """BudgetExceeded raised when cost budget exceeded."""
-        client = LLMClient("http://localhost", "test-model", "key")
+        client = LLMClient([OpenAICompatBackend("test", "key", "http://localhost", "test-model")])
         client.set_budget(max_cost=0.0)
         client._cost_usd = 0.01  # Already over budget
 
@@ -387,7 +387,7 @@ class TestBudgetEnforcement:
 
     def test_budget_exceeded_on_calls(self):
         """BudgetExceeded raised when call budget exceeded."""
-        client = LLMClient("http://localhost", "test-model", "key")
+        client = LLMClient([OpenAICompatBackend("test", "key", "http://localhost", "test-model")])
         client.set_budget(max_calls=0)
 
         with pytest.raises(BudgetExceeded, match="call budget"):
@@ -397,7 +397,7 @@ class TestBudgetEnforcement:
     def test_budget_from_env(self):
         """Budget reads defaults from environment variables."""
         with patch.dict(os.environ, {"LLM_MAX_CALLS": "25", "LLM_MAX_COST": "10.0"}):
-            client = LLMClient("http://localhost", "test-model", "key")
+            client = LLMClient([OpenAICompatBackend("test", "key", "http://localhost", "test-model")])
             assert client._max_calls_per_run == 25
             assert client._max_cost_usd == 10.0
             client.close()
@@ -405,7 +405,7 @@ class TestBudgetEnforcement:
     def test_record_cost_integration(self, conn, tmp_db):
         """_record_cost integrates with cost_ledger when run_id is set."""
         run_id = start_run(goal="test", conn=conn)
-        client = LLMClient("http://localhost", "test-model", "key")
+        client = LLMClient([OpenAICompatBackend("test", "key", "http://localhost", "test-model")])
         client.set_budget(run_id=run_id)
 
         # Patch record_cost to use the test connection

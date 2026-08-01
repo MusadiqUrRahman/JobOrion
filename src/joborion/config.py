@@ -206,7 +206,8 @@ def get_tier() -> int:
     """
     load_env()
 
-    has_llm = any(os.environ.get(k) for k in ("GEMINI_API_KEY", "OPENAI_API_KEY", "LLM_URL"))
+    from joborion.llm import _detect_providers
+    has_llm = bool(_detect_providers())
     if not has_llm:
         return 1
 
@@ -238,7 +239,8 @@ def check_tier(required: int, feature: str) -> None:
     _console = Console(stderr=True)
 
     missing: list[str] = []
-    if required >= 2 and not any(os.environ.get(k) for k in ("GEMINI_API_KEY", "OPENAI_API_KEY", "LLM_URL")):
+    from joborion.llm import _detect_providers
+    if required >= 2 and not _detect_providers():
         missing.append("LLM API key — run [bold]joborion init[/bold] or set GEMINI_API_KEY")
     if required >= 3:
         if not shutil.which("claude"):

@@ -1,186 +1,126 @@
-"""
-Unified LLM client for JobOrion.
+"""Unified LLM client with multi-provider auto-failover.
 
-Auto-detects provider from environment:
-  GEMINI_API_KEY  -> Google Gemini (default: gemini-2.0-flash)
-  OPENAI_API_KEY  -> OpenAI (default: gpt-4o-mini)
-  LLM_URL         -> Local llama.cpp / Ollama compatible endpoint
+Auto-detects all configured providers from environment variables.
+Supports Gemini, Anthropic Claude, OpenAI, OpenAI-compatible providers
+(OpenRouter, DeepSeek, Together, Groq, etc.), and local Ollama/llama.cpp.
 
-LLM_MODEL env var overrides the model name for any provider.
+Priority order: Gemini (free) -> Anthropic -> OpenAI -> Custom -> Local
+
+Users only paste API keys. Base URLs and models are pre-configured.
 """
+
+from __future__ import annotations
 
 import logging
 import os
 import time
+from abc import ABC, abstractmethod
 
 import httpx
 
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Budget exception
+# Exceptions
 # ---------------------------------------------------------------------------
+
 
 class BudgetExceeded(Exception):
     """Raised when an LLM call would exceed the configured budget."""
 
 
 # ---------------------------------------------------------------------------
-# Provider detection
+# Environment variable helpers
 # ---------------------------------------------------------------------------
 
-def _detect_provider() -> tuple[str, str, str]:
-    """Return (base_url, model, api_key) based on environment variables.
+_ENV_ALIASES: dict[str, list[str]] = {
+    "GEMINI_API_KEY": ["GOOGLE_API_KEY", "GEMINI_KEY"],
+    "GEMINI_MODEL": ["LLM_MODEL_GEMINI"],
+    "ANTHROPIC_API_KEY": [],
+    "ANTHROPIC_MODEL": [],
+    "OPENAI_API_KEY": ["OPENAI_KEY"],
+    "OPENAI_BASE_URL": ["OPENAI_API_BASE", "OPENAI_BASE"],
+    "OPENAI_MODEL": ["LLM_MODEL_OPENAI", "OPENAI_MODEL_NAME"],
+    "CUSTOM_API_KEY": ["DEEPSEEK_API_KEY"],
+    "CUSTOM_BASE_URL": ["DEEPSEEK_BASE_URL"],
+    "CUSTOM_MODEL": ["DEEPSEEK_MODEL", "LLM_MODEL_CUSTOM"],
+    "LLM_URL": ["LOCAL_LLM_URL", "OLLAMA_URL", "LLAMA_URL", "LOCAL_URL"],
+    "LLM_MODEL": ["MODEL", "LLM_MODEL_LOCAL", "LOCAL_MODEL"],
+    "LLM_API_KEY": ["LOCAL_API_KEY"],
+    "LLM_MAX_CALLS": ["MAX_CALLS", "MAX_LLM_CALLS"],
+    "LLM_MAX_COST": ["MAX_COST", "MAX_LLM_COST"],
+}
 
-    Reads env at call time (not module import time) so that load_env() called
-    in _bootstrap() is always visible here.
-    """
-    gemini_key = os.environ.get("GEMINI_API_KEY", "")
-    openai_key = os.environ.get("OPENAI_API_KEY", "")
-    local_url = os.environ.get("LLM_URL", "")
-    model_override = os.environ.get("LLM_MODEL", "")
-    openai_base = os.environ.get("OPENAI_BASE_URL", "")
 
-    if openai_key and not local_url and openai_base:
-        return (
-            openai_base.rstrip("/"),
-            model_override or "gpt-4o-mini",
-            openai_key,
-        )
+def _get_env(name: str, default: str = "") -> str:
+    """Get an env var by canonical name, falling back to known aliases."""
+    value = os.environ.get(name, "")
+    if value:
+        return value.strip()
+    for alias in _ENV_ALIASES.get(name, []):
+        value = os.environ.get(alias, "")
+        if value:
+            log.warning("Deprecated env var '%s' — use '%s' instead", alias, name)
+            return value.strip()
+    return default
 
-    if gemini_key and not local_url:
-        return (
-            "https://generativelanguage.googleapis.com/v1beta/openai",
-            model_override or "gemini-2.0-flash",
-            gemini_key,
-        )
 
-    if openai_key and not local_url:
-        return (
-            "https://api.openai.com/v1",
-            model_override or "gpt-4o-mini",
-            openai_key,
-        )
-
-    if local_url:
-        return (
-            local_url.rstrip("/"),
-            model_override or "local-model",
-            os.environ.get("LLM_API_KEY", ""),
-        )
-
-    raise RuntimeError(
-        "No LLM provider configured. "
-        "Set GEMINI_API_KEY, OPENAI_API_KEY, or LLM_URL in your environment."
-    )
+def _validate_env() -> list[str]:
+    """Check for unknown API key env vars and return warning messages."""
+    warnings: list[str] = []
+    all_valid = set(_ENV_ALIASES.keys())
+    for aliases in _ENV_ALIASES.values():
+        all_valid.update(aliases)
+    for key in os.environ:
+        if "_API_" in key or key.endswith("_KEY") or "API_KEY" in key:
+            if key not in all_valid:
+                warnings.append(
+                    f"Unknown env var '{key}' — use GEMINI_API_KEY, "
+                    f"ANTHROPIC_API_KEY, OPENAI_API_KEY, or CUSTOM_API_KEY"
+                )
+    return warnings
 
 
 # ---------------------------------------------------------------------------
-# Client
+# Provider backends
 # ---------------------------------------------------------------------------
 
-_MAX_RETRIES = 5
-_TIMEOUT = 120  # seconds
 
-# Base wait on first 429/503 (doubles each retry, caps at 60s).
-# Gemini free tier is 15 RPM = 4s minimum between requests; 10s gives headroom.
-_RATE_LIMIT_BASE_WAIT = 10
+class LLMBackend(ABC):
+    """Base class for an LLM provider backend.
 
-
-_GEMINI_COMPAT_BASE = "https://generativelanguage.googleapis.com/v1beta/openai"
-_GEMINI_NATIVE_BASE = "https://generativelanguage.googleapis.com/v1beta"
-
-
-class LLMClient:
-    """Thin LLM client supporting OpenAI-compatible and native Gemini endpoints.
-
-    For Gemini keys, starts on the OpenAI-compat layer. On a 403 (which
-    happens with preview/experimental models not exposed via compat), it
-    automatically switches to the native generateContent API and stays there
-    for the lifetime of the process.
-
-    Includes budget enforcement to prevent runaway API costs.
+    Each backend wraps a specific provider's SDK or API format.
+    Backends are self-contained and manage their own transport.
     """
 
-    def __init__(self, base_url: str, model: str, api_key: str) -> None:
-        self.base_url = base_url
+    name: str
+    model: str
+
+    @abstractmethod
+    def chat(self, messages: list[dict], temperature: float, max_tokens: int) -> str:
+        """Send messages and return the assistant response text."""
+
+    def count_tokens(self, text: str) -> int:
+        """Rough token estimate — override with SDK's counter if available."""
+        return len(text.split())
+
+
+class OpenAICompatBackend(LLMBackend):
+    """For any provider that speaks the OpenAI chat completions format.
+
+    Covers: OpenAI, OpenRouter, DeepSeek, Together, Groq, Perplexity, etc.
+    """
+
+    def __init__(self, name: str, api_key: str, base_url: str, model: str) -> None:
+        self.name = name
         self.model = model
-        self.api_key = api_key
-        self._client = httpx.Client(timeout=_TIMEOUT)
-        # True once we've confirmed the native Gemini API works for this model
-        self._use_native_gemini: bool = False
-        self._is_gemini: bool = base_url.startswith(_GEMINI_COMPAT_BASE)
-        # Budget enforcement — call count
-        self._call_count: int = 0
-        self._max_calls_per_run: int = int(os.environ.get("LLM_MAX_CALLS", "50"))
-        # Budget enforcement — cost cap
-        self._cost_usd: float = 0.0
-        self._max_cost_usd: float = float(os.environ.get("LLM_MAX_COST", "5.0"))
-        self._current_run_id: str | None = None
+        self._api_key = api_key
+        self._base_url = base_url.rstrip("/")
 
-    # -- Native Gemini API --------------------------------------------------
-
-    def _chat_native_gemini(
-        self,
-        messages: list[dict],
-        temperature: float,
-        max_tokens: int,
-    ) -> str:
-        """Call the native Gemini generateContent API.
-
-        Used automatically when the OpenAI-compat endpoint returns 403,
-        which happens for preview/experimental models not exposed via compat.
-
-        Converts OpenAI-style messages to Gemini's contents/systemInstruction
-        format transparently.
-        """
-        contents: list[dict] = []
-        system_parts: list[dict] = []
-
-        for msg in messages:
-            role = msg["role"]
-            text = msg.get("content", "")
-            if role == "system":
-                system_parts.append({"text": text})
-            elif role == "user":
-                contents.append({"role": "user", "parts": [{"text": text}]})
-            elif role == "assistant":
-                # Gemini uses "model" instead of "assistant"
-                contents.append({"role": "model", "parts": [{"text": text}]})
-
-        payload: dict = {
-            "contents": contents,
-            "generationConfig": {
-                "temperature": temperature,
-                "maxOutputTokens": max_tokens,
-            },
-        }
-        if system_parts:
-            payload["systemInstruction"] = {"parts": system_parts}
-
-        url = f"{_GEMINI_NATIVE_BASE}/models/{self.model}:generateContent"
-        resp = self._client.post(
-            url,
-            json=payload,
-            headers={"Content-Type": "application/json"},
-            params={"key": self.api_key},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data["candidates"][0]["content"]["parts"][0]["text"]
-
-    # -- OpenAI-compat API --------------------------------------------------
-
-    def _chat_compat(
-        self,
-        messages: list[dict],
-        temperature: float,
-        max_tokens: int,
-    ) -> str:
-        """Call the OpenAI-compatible endpoint."""
-        headers: dict[str, str] = {"Content-Type": "application/json"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+    def chat(self, messages: list[dict], temperature: float, max_tokens: int) -> str:
+        headers = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
 
         payload = {
             "model": self.model,
@@ -189,31 +129,226 @@ class LLMClient:
             "max_tokens": max_tokens,
         }
 
-        resp = self._client.post(
-            f"{self.base_url}/chat/completions",
-            json=payload,
-            headers=headers,
+        with httpx.Client(timeout=120) as client:
+            resp = client.post(
+                f"{self._base_url}/chat/completions",
+                json=payload,
+                headers=headers,
+            )
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
+
+
+class GeminiBackend(LLMBackend):
+    """Google Gemini via the google.genai SDK."""
+
+    def __init__(self, api_key: str, model: str) -> None:
+        from google import genai as genai_module
+
+        self._client = genai_module.Client(api_key=api_key)
+        self.name = "gemini"
+        self.model = model
+
+    def _convert_messages(
+        self, messages: list[dict]
+    ) -> tuple[list, str | None]:
+        """OpenAI-style messages -> Gemini contents + system instruction."""
+        from google.genai import types as genai_types
+
+        contents: list = []
+        system_parts: list[str] = []
+
+        for msg in messages:
+            role = msg.get("role", "user")
+            text = msg.get("content", "")
+            if role == "system":
+                system_parts.append(text)
+            elif role == "user":
+                contents.append(
+                    genai_types.Content(
+                        role="user", parts=[genai_types.Part(text=text)]
+                    )
+                )
+            elif role == "assistant":
+                contents.append(
+                    genai_types.Content(
+                        role="model", parts=[genai_types.Part(text=text)]
+                    )
+                )
+
+        system_text = "\n".join(system_parts) if system_parts else None
+        return contents, system_text
+
+    def chat(self, messages: list[dict], temperature: float, max_tokens: int) -> str:
+        from google.genai import types as genai_types
+
+        contents, system_text = self._convert_messages(messages)
+
+        response = self._client.models.generate_content(
+            model=self.model,
+            contents=contents,
+            config=genai_types.GenerateContentConfig(
+                temperature=temperature,
+                max_output_tokens=max_tokens,
+                system_instruction=system_text,
+            ),
         )
+        return response.text
 
-        # 403 on Gemini compat = model not available on compat layer.
-        # Raise a specific sentinel so chat() can switch to native API.
-        if resp.status_code == 403 and self._is_gemini:
-            raise _GeminiCompatForbidden(resp)
 
-        return self._handle_compat_response(resp)
+class AnthropicBackend(LLMBackend):
+    """Anthropic Claude via the anthropic SDK."""
+
+    def __init__(self, api_key: str, model: str) -> None:
+        import anthropic as anthropic_module
+
+        self._client = anthropic_module.Anthropic(api_key=api_key)
+        self.name = "anthropic"
+        self.model = model
 
     @staticmethod
-    def _handle_compat_response(resp: httpx.Response) -> str:
-        resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"]
+    def _convert_messages(
+        messages: list[dict],
+    ) -> tuple[list[dict], str | None]:
+        """OpenAI-style messages -> Anthropic messages + system prompt."""
+        system: str | None = None
+        converted: list[dict] = []
 
-    # -- public API ---------------------------------------------------------
+        for msg in messages:
+            role = msg.get("role", "user")
+            text = msg.get("content", "")
+            if role == "system":
+                system = text
+            elif role == "user":
+                converted.append({"role": "user", "content": text})
+            elif role == "assistant":
+                converted.append({"role": "assistant", "content": text})
+
+        return converted, system
+
+    def chat(self, messages: list[dict], temperature: float, max_tokens: int) -> str:
+        msgs, system = self._convert_messages(messages)
+
+        kwargs: dict = {
+            "model": self.model,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": msgs,
+        }
+        if system:
+            kwargs["system"] = system
+
+        response = self._client.messages.create(**kwargs)
+        return response.content[0].text
+
+
+# ---------------------------------------------------------------------------
+# Provider detection
+# ---------------------------------------------------------------------------
+
+
+def _detect_providers() -> list[LLMBackend]:
+    """Return all configured providers in priority order.
+
+    Reads env vars at call time. Each backend wraps a specific provider's SDK.
+    Priority: Gemini (free) -> Anthropic -> OpenAI -> Custom -> Local
+    """
+    providers: list[LLMBackend] = []
+
+    # 1 — Gemini (free tier, best rate limits for personal use)
+    if key := _get_env("GEMINI_API_KEY"):
+        model = _get_env("GEMINI_MODEL") or "gemini-2.0-flash"
+        try:
+            providers.append(GeminiBackend(key, model))
+        except ImportError:
+            log.warning("GEMINI_API_KEY set but google-genai SDK not installed")
+
+    # 2 — Anthropic Claude
+    if key := _get_env("ANTHROPIC_API_KEY"):
+        model = _get_env("ANTHROPIC_MODEL") or "claude-sonnet-4-20250514"
+        try:
+            providers.append(AnthropicBackend(key, model))
+        except ImportError:
+            log.warning("ANTHROPIC_API_KEY set but anthropic SDK not installed")
+
+    # 3 — OpenAI (or OpenRouter / custom endpoint via OPENAI_BASE_URL)
+    if key := _get_env("OPENAI_API_KEY"):
+        base = _get_env("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+        model = _get_env("OPENAI_MODEL") or "gpt-4o-mini"
+        name = "openrouter" if "openrouter" in base.lower() else "openai"
+        providers.append(OpenAICompatBackend(name, key, base, model))
+
+    # 4 — Custom OpenAI-compatible (DeepSeek, Together, Groq, etc.)
+    if key := _get_env("CUSTOM_API_KEY"):
+        base = _get_env("CUSTOM_BASE_URL", "")
+        if base:
+            model = _get_env("CUSTOM_MODEL") or "gpt-4o-mini"
+            providers.append(OpenAICompatBackend("custom", key, base, model))
+
+    # 5 — Local (Ollama / llama.cpp)
+    if url := _get_env("LLM_URL"):
+        model = _get_env("LLM_MODEL") or "local-model"
+        providers.append(
+            OpenAICompatBackend("local", _get_env("LLM_API_KEY"), url, model)
+        )
+
+    return providers
+
+
+# ---------------------------------------------------------------------------
+# Client
+# ---------------------------------------------------------------------------
+
+_MAX_RETRIES = 5
+_TIMEOUT = 120
+_RATE_LIMIT_BASE_WAIT = 10
+
+
+class LLMClient:
+    """Multi-provider LLM client with automatic failover.
+
+    Accepts a list of backends (in priority order). The first backend is used
+    initially. On failure (rate limit, timeout, or API error), the client
+    automatically falls back to the next configured backend.
+
+    Includes budget enforcement to prevent runaway API costs.
+    """
+
+    def __init__(self, backends: list[LLMBackend]) -> None:
+        if not backends:
+            raise ValueError("At least one provider is required")
+        self.backends = backends
+        self._backend_index: int = 0
+        self._call_count: int = 0
+        self._cost_usd: float = 0.0
+        self._max_calls_per_run: int = int(_get_env("LLM_MAX_CALLS", "50"))
+        self._max_cost_usd: float = float(_get_env("LLM_MAX_COST", "5.0"))
+        self._current_run_id: str | None = None
+
+    # -- provider switching ------------------------------------------------
+
+    @property
+    def _current(self) -> LLMBackend:
+        return self.backends[self._backend_index]
+
+    def _switch_backend(self) -> bool:
+        if self._backend_index < len(self.backends) - 1:
+            old = self._current
+            self._backend_index += 1
+            log.info(
+                "Failing over: %s -> %s (%s)",
+                old.name, self._current.name, self._current.model,
+            )
+            return True
+        return False
+
+    # -- budget -----------------------------------------------------------
 
     def reset_budget(self) -> None:
-        """Reset the call counter and cost tracker for a new pipeline run."""
+        """Reset caller counter, cost tracker, and provider index."""
         self._call_count = 0
         self._cost_usd = 0.0
+        self._backend_index = 0
 
     def set_budget(
         self,
@@ -221,13 +356,7 @@ class LLMClient:
         max_cost: float | None = None,
         run_id: str | None = None,
     ) -> None:
-        """Set budget limits for the current session.
-
-        Args:
-            max_calls: Maximum LLM calls allowed (overrides env var).
-            max_cost: Maximum total cost in USD (overrides env var).
-            run_id: Run ID for cost ledger recording.
-        """
+        """Set budget limits for the current session."""
         if max_calls is not None:
             self._max_calls_per_run = max_calls
         if max_cost is not None:
@@ -244,151 +373,137 @@ class LLMClient:
         """Remaining budget in USD."""
         return max(0.0, self._max_cost_usd - self._cost_usd)
 
+    # -- chat -------------------------------------------------------------
+
     def chat(
         self,
         messages: list[dict],
         temperature: float = 0.0,
         max_tokens: int = 4096,
     ) -> str:
-        """Send a chat completion request and return the assistant message text."""
-        # Budget enforcement — call count
+        """Send a chat completion and return the assistant message text.
+
+        Automatically fails over to the next provider on errors.
+        """
         if self._call_count >= self._max_calls_per_run:
             raise BudgetExceeded(
-                f"LLM call budget exhausted: {self._call_count}/{self._max_calls_per_run} calls used. "
-                f"Set LLM_MAX_CALLS env var to increase limit."
+                f"LLM call budget exhausted: {self._call_count}/{self._max_calls_per_run} "
+                f"calls used. Set LLM_MAX_CALLS to increase."
             )
-        # Budget enforcement — cost cap
         if self._cost_usd >= self._max_cost_usd:
             raise BudgetExceeded(
-                f"LLM cost budget exhausted: ${self._cost_usd:.4f}/${self._max_cost_usd:.2f} used. "
-                f"Set LLM_MAX_COST env var to increase limit."
+                f"LLM cost budget exhausted: ${self._cost_usd:.4f}/${self._max_cost_usd:.2f} "
+                f"used. Set LLM_MAX_COST to increase."
             )
         self._call_count += 1
 
-        # Qwen3 optimization: prepend /no_think to skip chain-of-thought
-        # reasoning, saving tokens on structured extraction tasks.
-        if "qwen" in self.model.lower() and messages:
+        # Qwen3: skip chain-of-thought
+        if "qwen" in self._current.model.lower() and messages:
             first = messages[0]
             if first.get("role") == "user" and not first["content"].startswith("/no_think"):
-                messages = [{"role": first["role"], "content": f"/no_think\n{first['content']}"}] + messages[1:]
+                messages = [
+                    {"role": "user", "content": f"/no_think\n{first['content']}"}
+                ] + messages[1:]
 
         for attempt in range(_MAX_RETRIES):
             try:
-                # Route to native Gemini if we've already confirmed it's needed
-                if self._use_native_gemini:
-                    result = self._chat_native_gemini(messages, temperature, max_tokens)
-                    self._record_cost(action="chat", tokens_out=len(result.split()))
-                    return result
-
-                result = self._chat_compat(messages, temperature, max_tokens)
+                result = self._current.chat(messages, temperature, max_tokens)
                 self._record_cost(action="chat", tokens_out=len(result.split()))
                 return result
 
-            except _GeminiCompatForbidden:
-                # Model not available on OpenAI-compat layer — switch to native.
-                log.warning(
-                    "Gemini compat endpoint returned 403 for model '%s'. "
-                    "Switching to native generateContent API. "
-                    "(Preview/experimental models are often compat-only on native.)",
-                    self.model,
-                )
-                self._use_native_gemini = True
-                # Retry immediately with native — don't count as a rate-limit wait
-                try:
-                    result = self._chat_native_gemini(messages, temperature, max_tokens)
-                    self._record_cost(action="chat", tokens_out=len(result.split()))
-                    return result
-                except httpx.HTTPStatusError as native_exc:
-                    raise RuntimeError(
-                        f"Both Gemini endpoints failed. Compat: 403 Forbidden. "
-                        f"Native: {native_exc.response.status_code} — "
-                        f"{native_exc.response.text[:200]}"
-                    ) from native_exc
-
             except httpx.HTTPStatusError as exc:
-                resp = exc.response
-                if resp.status_code in (429, 503) and attempt < _MAX_RETRIES - 1:
-                    # Respect Retry-After header if provided (Gemini sends this).
-                    retry_after = (
-                        resp.headers.get("Retry-After")
-                        or resp.headers.get("X-RateLimit-Reset-Requests")
-                    )
-                    if retry_after:
-                        try:
-                            wait = float(retry_after)
-                        except (ValueError, TypeError):
-                            wait = _RATE_LIMIT_BASE_WAIT * (2 ** attempt)
-                    else:
-                        wait = min(_RATE_LIMIT_BASE_WAIT * (2 ** attempt), 60)
-
-                    log.warning(
-                        "LLM rate limited (HTTP %s). Waiting %ds before retry %d/%d. "
-                        "Tip: Gemini free tier = 15 RPM. Consider a paid account "
-                        "or switching to a local model.",
-                        resp.status_code, wait, attempt + 1, _MAX_RETRIES,
-                    )
-                    time.sleep(wait)
-                    continue
+                status = exc.response.status_code
+                if status in (429, 503):
+                    if self._switch_backend():
+                        continue
+                    if attempt < _MAX_RETRIES - 1:
+                        wait = self._backoff_wait(exc.response, attempt)
+                        log.warning(
+                            "Rate limited (HTTP %s) — all providers exhausted. "
+                            "Waiting %ds before retry %d/%d.",
+                            status, wait, attempt + 1, _MAX_RETRIES,
+                        )
+                        time.sleep(wait)
+                        self._backend_index = 0
+                        continue
                 raise
 
-            except httpx.TimeoutException:
+            except (httpx.TimeoutException, httpx.ConnectError):
+                if self._switch_backend():
+                    continue
                 if attempt < _MAX_RETRIES - 1:
                     wait = min(_RATE_LIMIT_BASE_WAIT * (2 ** attempt), 60)
                     log.warning(
-                        "LLM request timed out, retrying in %ds (attempt %d/%d)",
+                        "Connection error — all providers exhausted. "
+                        "Retrying in %ds (attempt %d/%d)",
                         wait, attempt + 1, _MAX_RETRIES,
                     )
                     time.sleep(wait)
+                    self._backend_index = 0
+                    continue
+                raise
+
+            except Exception as exc:
+                if self._switch_backend():
+                    log.warning(
+                        "%s failed: %s — failing over to %s",
+                        self.backends[self._backend_index - 1].name,
+                        exc, self._current.name,
+                    )
                     continue
                 raise
 
         raise RuntimeError("LLM request failed after all retries")
 
-    def _record_cost(self, action: str, tokens_in: int = 0, tokens_out: int = 0) -> None:
-        """Record cost for this call. Estimates cost based on token counts.
+    @staticmethod
+    def _backoff_wait(response: httpx.Response, attempt: int) -> float:
+        """Extract Retry-After header or compute exponential backoff."""
+        retry_after = (
+            response.headers.get("Retry-After")
+            or response.headers.get("X-RateLimit-Reset-Requests")
+        )
+        if retry_after:
+            try:
+                return float(retry_after)
+            except (ValueError, TypeError):
+                pass
+        return min(_RATE_LIMIT_BASE_WAIT * (2 ** attempt), 60)
 
-        Args:
-            action: What action was performed.
-            tokens_in: Input tokens (estimated from message content).
-            tokens_out: Output tokens (from response).
-        """
-        # Rough cost estimation (varies by model; these are conservative estimates)
-        # Gemini 2.0 Flash: ~$0.10/1M input, ~$0.40/1M output
-        # GPT-4o-mini: ~$0.15/1M input, ~$0.60/1M output
+    def _record_cost(
+        self,
+        action: str,
+        tokens_in: int = 0,
+        tokens_out: int = 0,
+    ) -> None:
+        """Record cost for this call."""
         input_cost = tokens_in * 0.00000015
         output_cost = tokens_out * 0.00000060
         call_cost = input_cost + output_cost
-
         self._cost_usd += call_cost
 
-        # Record to cost ledger if we have a run_id
         if self._current_run_id:
             try:
                 from joborion.database import record_cost
+
                 record_cost(
                     run_id=self._current_run_id,
                     action=action,
-                    tool=self.model,
+                    tool=self._current.model,
                     tokens_in=tokens_in,
                     tokens_out=tokens_out,
                     cost_usd=call_cost,
                 )
             except Exception:
-                pass  # Don't let cost recording failures break the pipeline
+                pass
 
-    def ask(self, prompt: str, **kwargs) -> str:
-        """Convenience: single user prompt -> assistant response."""
+    # -- convenience ------------------------------------------------------
+
+    def ask(self, prompt: str, **kwargs: object) -> str:
+        """Single user prompt -> assistant response."""
         return self.chat([{"role": "user", "content": prompt}], **kwargs)
 
     def close(self) -> None:
-        self._client.close()
-
-
-class _GeminiCompatForbidden(Exception):
-    """Sentinel: Gemini OpenAI-compat returned 403. Switch to native API."""
-    def __init__(self, response: httpx.Response) -> None:
-        self.response = response
-        super().__init__(f"Gemini compat 403: {response.text[:200]}")
+        """Dispose of resources. No-op — backends manage their own transport."""
 
 
 # ---------------------------------------------------------------------------
@@ -403,8 +518,20 @@ def get_client() -> LLMClient:
     global _instance
     if _instance is None:
         from joborion.config import load_env
+
         load_env()
-        base_url, model, api_key = _detect_provider()
-        log.info("LLM provider: %s  model: %s", base_url, model)
-        _instance = LLMClient(base_url, model, api_key)
+        backends = _detect_providers()
+        if not backends:
+            raise RuntimeError(
+                "No LLM provider configured. "
+                "Set GEMINI_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY "
+                "in your .env file."
+            )
+        log.info(
+            "Configured providers: %s",
+            ", ".join(f"{b.name} ({b.model})" for b in backends),
+        )
+        for warning in _validate_env():
+            log.warning(".env: %s", warning)
+        _instance = LLMClient(backends)
     return _instance
