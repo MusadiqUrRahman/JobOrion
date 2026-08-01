@@ -95,29 +95,76 @@ def _build_profile_summary(profile: dict) -> str:
 def _build_location_check(profile: dict, search_config: dict) -> str:
     """Build the location eligibility check section of the prompt.
 
-    Uses the accept_patterns from search config to determine which cities
-    are acceptable for hybrid/onsite roles.
+    Derives the decision rules from the candidate's profile (home country,
+    authorized countries, sponsorship need, relocation willingness) and the
+    active search mode. Works for any country — nothing is hardcoded.
     """
-    personal = profile["personal"]
-    location_cfg = search_config.get("location", {})
-    accept_patterns = location_cfg.get("accept_patterns", [])
-    primary_city = personal.get("city", location_cfg.get("primary", "your city"))
+    try:
+        from joborion.eligibility import constraints_from_profile
+        c = constraints_from_profile(profile)
+    except Exception:
+        c = {}
 
-    # Build the list of acceptable cities for hybrid/onsite
-    if accept_patterns:
-        city_list = ", ".join(accept_patterns)
-    else:
-        city_list = primary_city
+    home = c.get("home_country") or "your home country"
+    authorized = c.get("authorized_countries") or []
+    authorized_text = ", ".join(authorized) if authorized else home
+    sponsorship_needed = c.get("sponsorship_needed", True)
+    relocation = c.get("relocation_willing", False)
+
+    mode = search_config.get("defaults", {}).get("search_mode", "all")
+    if mode not in ("remote", "local", "sponsorship", "all"):
+        mode = "all"
+
+    relocation_line = (
+        "You ARE willing to relocate for a role." if relocation
+        else "You are NOT willing to relocate."
+    )
+    sponsorship_line = (
+        "You NEED visa sponsorship." if sponsorship_needed
+        else "You do NOT need visa sponsorship."
+    )
+
+    if mode == "remote":
+        rule = (
+            f"- \"Remote\", \"work from anywhere\", \"worldwide\" -> ELIGIBLE. Apply.\n"
+            f"- Remote but restricted to {home} only -> ELIGIBLE. Apply.\n"
+            f"- Remote but restricted to another country -> check below.\n"
+            f"- Any hybrid/onsite role (no remote option) -> NOT ELIGIBLE. Stop. Output RESULT:FAILED:not_remote"
+        )
+    elif mode == "local":
+        rule = (
+            f"- \"Remote\" / \"work from anywhere\" -> ELIGIBLE. Apply.\n"
+            f"- Onsite or hybrid in {home} -> ELIGIBLE. Apply.\n"
+            f"- Onsite, hybrid, or country-restricted remote in any country other than {home} -> NOT ELIGIBLE. Stop. Output RESULT:FAILED:not_eligible_location"
+        )
+    elif mode == "sponsorship":
+        rule = (
+            f"- \"Remote\" / \"work from anywhere\" -> ELIGIBLE. Apply.\n"
+            f"- Onsite or remote in {home} -> ELIGIBLE. Apply.\n"
+            f"- Onsite or restricted-remote in an authorized country ({authorized_text}) -> ELIGIBLE. Apply.\n"
+            f"- Onsite in another country: {relocation_line.lower()} "
+            f"{'-> ELIGIBLE. Apply.' if relocation else '-> NOT ELIGIBLE. Stop. Output RESULT:FAILED:not_eligible_location'}\n"
+            f"- Posting says the employer provides visa sponsorship / relocation support -> ELIGIBLE. Apply."
+        )
+    else:  # all
+        rule = (
+            f"- \"Remote\" / \"work from anywhere\" -> ELIGIBLE. Apply.\n"
+            f"- Onsite or remote in {home} -> ELIGIBLE. Apply.\n"
+            f"- Onsite or restricted-remote in an authorized country ({authorized_text}) -> ELIGIBLE. Apply.\n"
+            f"- Remote but restricted to a country you are NOT authorized in -> NOT ELIGIBLE. Stop. Output RESULT:FAILED:country_restricted\n"
+            f"- Onsite in another country: {relocation_line.lower()}. "
+            f"{'-> ELIGIBLE. Apply.' if relocation else '-> NOT ELIGIBLE. Stop. Output RESULT:FAILED:not_eligible_location'}"
+        )
 
     return f"""== LOCATION CHECK (do this FIRST before any form) ==
-Read the job page. Determine the work arrangement. Then decide:
-- "Remote" or "work from anywhere" -> ELIGIBLE. Apply.
-- "Hybrid" or "onsite" in {city_list} -> ELIGIBLE. Apply.
-- "Hybrid" or "onsite" in another city BUT the posting also says "remote OK" or "remote option available" -> ELIGIBLE. Apply.
-- "Onsite only" or "hybrid only" in any city outside the list above with NO remote option -> NOT ELIGIBLE. Stop immediately. Output RESULT:FAILED:not_eligible_location
-- City is overseas (India, Philippines, Europe, etc.) with no remote option -> NOT ELIGIBLE. Output RESULT:FAILED:not_eligible_location
+CANDIDATE: you are based in {home}. {relocation_line} {sponsorship_line}
+You are legally authorized to work in: {authorized_text}
+Active search mode: {mode}
+
+Read the job page. Determine the work arrangement, then decide:
+{rule}
 - Cannot determine location -> Continue applying. If a screening question reveals it's non-local onsite, answer honestly and let the system reject if needed.
-Do NOT fill out forms for jobs that are clearly onsite in a non-acceptable location. Check EARLY, save time."""
+Do NOT fill out forms for jobs that are clearly ineligible. Check EARLY, save time."""
 
 
 def _build_salary_section(profile: dict) -> str:

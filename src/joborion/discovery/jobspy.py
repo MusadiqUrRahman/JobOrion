@@ -12,6 +12,7 @@ import sqlite3
 import time
 from datetime import datetime, timezone
 
+import pandas as pd
 from jobspy import scrape_jobs
 
 from joborion import config
@@ -115,6 +116,72 @@ def _location_ok(location: str | None, accept: list[str], reject: list[str]) -> 
     return False
 
 
+def _keep_remote_only(df) -> pd.DataFrame:
+    """Return only remote rows from a results DataFrame.
+
+    If no remote indicator column exists, returns the DataFrame unchanged.
+    """
+    if "is_remote" not in df.columns:
+        return df
+    remote_mask = df["is_remote"].fillna(False).astype(bool)
+    return df[remote_mask]
+
+
+# -- Search mode -------------------------------------------------------------
+
+def _home_country() -> str | None:
+    """Canonical home country from the user's profile (if available)."""
+    try:
+        from joborion.eligibility import constraints_from_profile
+        from joborion.config import load_profile
+        return constraints_from_profile(load_profile()).get("home_country")
+    except Exception:
+        return None
+
+
+def _build_searches(queries: list[dict], locs: list[dict], mode: str) -> tuple[list[dict], bool]:
+    """Build search combinations for a given search mode.
+
+    Returns:
+        (searches, remote_only_flag) where remote_only forces the
+        belt-and-suspenders post-filter in _run_one_search.
+    """
+    mode = mode if mode in ("remote", "local", "sponsorship", "all") else "all"
+
+    if mode == "remote":
+        # Worldwide remote only — single location, remote post-filter on.
+        eff_locs = [{"location": "worldwide", "remote": True}]
+        return _expand(queries, eff_locs), True
+
+    if mode == "local":
+        # Candidate's home country + any explicitly-remote locations.
+        home = _home_country()
+        eff_locs = []
+        if home:
+            eff_locs.append({"location": home.capitalize(), "remote": False})
+        eff_locs += [loc for loc in locs if loc.get("remote")]
+        if not eff_locs:
+            eff_locs = [{"location": home or "worldwide", "remote": False}]
+        return _expand(queries, eff_locs), False
+
+    # sponsorship / all: keep the configured locations as-is.
+    return _expand(queries, locs), False
+
+
+def _expand(queries: list[dict], locs: list[dict]) -> list[dict]:
+    """Cartesian product of queries x locations (as search dicts)."""
+    searches = []
+    for q in queries:
+        for loc in locs:
+            searches.append({
+                "query": q["query"],
+                "location": loc["location"],
+                "remote": loc.get("remote", False),
+                "tier": q.get("tier", 0),
+            })
+    return searches
+
+
 # -- DB storage (JobSpy DataFrame -> SQLite) ---------------------------------
 
 def store_jobspy_results(conn: sqlite3.Connection, df, source_label: str) -> tuple[int, int]:
@@ -194,12 +261,16 @@ def _run_one_search(
     accept_locs: list[str],
     reject_locs: list[str],
     glassdoor_map: dict,
+    remote_only: bool = False,
 ) -> dict:
     """Run a single search query and store results in DB."""
     s = search
     label = f"\"{s['query']}\" in {s['location']} {'(remote)' if s.get('remote') else ''}"
     if "tier" in s:
         label += f" [tier {s['tier']}]"
+
+    # Remote-only can come from the search itself or a global config default
+    want_remote = s.get("remote", False) or remote_only
 
     # Split sites: Glassdoor needs simplified location, others use original
     gd_location = glassdoor_map.get(s["location"], s["location"].split(",")[0])
@@ -221,6 +292,8 @@ def _run_one_search(
             "verbose": 0,
         }
         if s.get("remote"):
+            kwargs["is_remote"] = True
+        if want_remote:
             kwargs["is_remote"] = True
         if proxy_config:
             kwargs["proxies"] = [proxy_config["jobspy"]]
@@ -257,7 +330,6 @@ def _run_one_search(
         log.error("[%s]: all sites failed", label)
         return {"new": 0, "existing": 0, "errors": 1, "filtered": 0, "total": 0, "label": label}
 
-    import pandas as pd
     import warnings
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", FutureWarning)
@@ -274,6 +346,16 @@ def _run_one_search(
         accept_locs, reject_locs,
     ), axis=1)]
     filtered = before - len(df)
+
+    # Enforce remote-only when requested (belt-and-suspenders: some boards
+    # return non-remote listings even with is_remote=True).
+    if want_remote:
+        before_remote = len(df)
+        df = _keep_remote_only(df)
+        remote_filtered = before_remote - len(df)
+        if remote_filtered:
+            log.info("[%s] dropped %d non-remote results", label, remote_filtered)
+            filtered += remote_filtered
 
     conn = get_connection()
     new, existing = store_jobspy_results(conn, df, s["query"])
@@ -365,6 +447,7 @@ def _full_crawl(
     hours_old: int = 72,
     proxy: str | None = None,
     max_retries: int = 2,
+    mode: str | None = None,
 ) -> dict:
     """Run all search queries from search config across all locations."""
     if sites is None:
@@ -376,27 +459,32 @@ def _full_crawl(
     defaults = search_cfg.get("defaults", {})
     glassdoor_map = search_cfg.get("glassdoor_location_map", {})
     accept_locs, reject_locs = _load_location_config(search_cfg)
+    config_remote_only = bool(defaults.get("remote_only", False))
+    search_mode = mode or defaults.get("search_mode", "all")
 
     if tiers:
         queries = [q for q in queries if q.get("tier") in tiers]
     if locations:
         locs = [loc for loc in locs if loc.get("label") in locations]
 
-    searches = []
-    for q in queries:
-        for loc in locs:
-            searches.append({
-                "query": q["query"],
-                "location": loc["location"],
-                "remote": loc.get("remote", False),
-                "tier": q.get("tier", 0),
-            })
+    searches, mode_remote_only = _build_searches(queries, locs, search_mode)
+    # Effective remote-only: explicit remote_mode flag OR global config remote_only
+    remote_only = mode_remote_only or config_remote_only
 
     proxy_config = parse_proxy(proxy) if proxy else None
 
-    log.info("Full crawl: %d search combinations", len(searches))
+    log.info("Full crawl: %d search combinations | mode=%s", len(searches), search_mode)
     log.info("Sites: %s | Results/site: %d | Hours old: %d",
              ", ".join(sites), results_per_site, hours_old)
+    if remote_only:
+        log.info("Remote-only mode: filtering all results to remote jobs")
+
+    # In local mode, force the Indeed country to the candidate's home country.
+    defaults = dict(defaults)
+    if search_mode == "local":
+        home = _home_country()
+        if home and home != "unknown":
+            defaults["country_indeed"] = home
 
     # Ensure DB schema is ready
     init_db()
@@ -411,6 +499,7 @@ def _full_crawl(
             s, sites, results_per_site, hours_old,
             proxy_config, defaults, max_retries,
             accept_locs, reject_locs, glassdoor_map,
+            remote_only=remote_only,
         )
         completed += 1
         total_new += result["new"]
@@ -439,7 +528,7 @@ def _full_crawl(
 
 # -- Public entry point ------------------------------------------------------
 
-def scrape_jobspy(cfg: dict | None = None) -> dict:
+def scrape_jobspy(cfg: dict | None = None, mode: str | None = None) -> dict:
     """Main entry point for JobSpy-based job discovery.
 
     Loads search queries and locations from the user's search config YAML,
@@ -448,6 +537,8 @@ def scrape_jobspy(cfg: dict | None = None) -> dict:
     Args:
         cfg: Override the search configuration dict. If None, loads from
              the user's searches.yaml file.
+        mode: Override the search mode (remote/local/sponsorship/all). If
+              None, uses the search_mode in the config (default "all").
 
     Returns:
         Dict with stats: new, existing, errors, db_total, queries.
@@ -474,4 +565,5 @@ def scrape_jobspy(cfg: dict | None = None) -> dict:
         results_per_site=results_per_site,
         hours_old=hours_old,
         proxy=proxy,
+        mode=mode,
     )

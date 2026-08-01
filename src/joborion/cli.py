@@ -18,6 +18,7 @@ from joborion.ui import (
     print_success,
     print_error,
     print_warning,
+    print_info,
     make_gradient_panel,
     print_success_banner,
     print_reflection_card,
@@ -25,8 +26,8 @@ from joborion.ui import (
     make_stats_table,
     make_score_distribution_table,
     make_site_table,
-    make_doctor_table,
-    print_tier_panel,
+    make_check_table,
+    make_jobs_table,
     print_spinner,
 )
 
@@ -80,7 +81,12 @@ def main(
 ) -> None:
     """[bold bright_cyan]JobOrion[/bold bright_cyan] — AI-powered job application pipeline."""
     if not version:
-        print_startup_screen()
+        from joborion.config import load_env, ensure_dirs
+        from joborion.database import init_db
+
+        load_env()
+        ensure_dirs()
+        init_db()
 
 
 @app.command()
@@ -211,8 +217,13 @@ def run(
     stream: bool = typer.Option(False, "--stream", help="Concurrent streaming mode."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview without executing."),
     validation: str = typer.Option("normal", "--validation", help="Validation strictness."),
+    mode: Optional[str] = typer.Option(
+        None, "--mode",
+        help="Search mode: remote, local, sponsorship, all.",
+    ),
 ) -> None:
     """Run pipeline stages: search, details, evaluate, tailor, letter, export."""
+    print_startup_screen()
     _bootstrap()
 
     # Goal-driven mode
@@ -287,6 +298,15 @@ def run(
         ))
         raise typer.Exit(code=1)
 
+    valid_search_modes = ("remote", "local", "sponsorship", "all")
+    if mode is not None and mode not in valid_search_modes:
+        print_error(f"Invalid --mode: '{mode}'")
+        console.print(make_gradient_panel(
+            f"[dim]Choose from: {', '.join(valid_search_modes)}[/dim]",
+            border_style="bright_red",
+        ))
+        raise typer.Exit(code=1)
+
     # Stage pipeline view
     print_screen_header("Pipeline Runner", "Stage execution", "⚡")
 
@@ -306,6 +326,7 @@ def run(
         stream=stream,
         workers=workers,
         validation_mode=validation,
+        mode=mode,
     )
 
     if result.get("errors"):
@@ -471,6 +492,51 @@ def status() -> None:
     print_spacer()
 
 
+# ---------------------------------------------------------------------------
+# Jobs
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def jobs(
+    stage: str = typer.Option(
+        "scored", "--stage", "-s",
+        help="Filter stage: discovered, enriched, scored, tailored, applied, pending_tailor",
+    ),
+    min_score: Optional[int] = typer.Option(
+        None, "--min-score", "-m",
+        help="Minimum fit score",
+    ),
+    limit: int = typer.Option(
+        20, "--limit", "-l",
+        help="Max results",
+    ),
+    description: bool = typer.Option(
+        False, "--description", "-d",
+        help="Show full job description",
+    ),
+) -> None:
+    """Browse jobs from the database."""
+    _bootstrap()
+
+    from joborion.database import get_jobs_by_stage
+
+    results = get_jobs_by_stage(stage=stage, min_score=min_score, limit=limit)
+
+    print_screen_header("Jobs Browser", f"{stage} ({len(results)} jobs)", "📋")
+    print_spacer()
+
+    if not results:
+        print_warning(f"No jobs found for stage '{stage}'.")
+        return
+
+    table = make_jobs_table(results, show_description=description)
+    console.print(table)
+
+    print_spacer()
+    print_info("Tip: click the URL column in the HTML dashboard for full details.")
+
+
 @app.command()
 def dashboard() -> None:
     """Generate and open the HTML dashboard in your browser."""
@@ -507,7 +573,7 @@ def open() -> None:
 
 
 @app.command()
-def doctor() -> None:
+def check() -> None:
     """Check your setup and diagnose missing requirements."""
     import shutil
     import os
@@ -518,85 +584,84 @@ def doctor() -> None:
 
     load_env()
 
-    print_screen_header("System Doctor", "Setup diagnostics", "🩺")
-
     results: list[tuple[str, str, str, str]] = []
+
+    # Helper to shorten paths for display
+    def short_path(p: str) -> str:
+        home = os.path.expanduser("~")
+        return p.replace(home, "~") if home in p else p
 
     # Tier 1 checks
     if PROFILE_PATH.exists():
-        results.append(("profile.json", "ok", "✅", str(PROFILE_PATH)))
+        results.append(("Profile", "ok", "●", short_path(str(PROFILE_PATH))))
     else:
-        results.append(("profile.json", "fail", "❌", "Run 'joborion init'"))
+        results.append(("Profile", "fail", "●", "Run 'joborion init'"))
 
     if RESUME_PATH.exists():
-        results.append(("resume.txt", "ok", "✅", str(RESUME_PATH)))
+        results.append(("Resume", "ok", "●", short_path(str(RESUME_PATH))))
     elif RESUME_PDF_PATH.exists():
-        results.append(("resume.txt", "warn", "⚠️", "Only PDF found"))
+        results.append(("Resume", "warn", "●", "Only PDF found"))
     else:
-        results.append(("resume.txt", "fail", "❌", "Run 'joborion init'"))
+        results.append(("Resume", "fail", "●", "Run 'joborion init'"))
 
     if SEARCH_CONFIG_PATH.exists():
-        results.append(("searches.yaml", "ok", "✅", str(SEARCH_CONFIG_PATH)))
+        results.append(("Searches", "ok", "●", short_path(str(SEARCH_CONFIG_PATH))))
     else:
-        results.append(("searches.yaml", "warn", "⚠️", "Will use example"))
+        results.append(("Searches", "warn", "●", "Will use example"))
 
     import importlib.util
     if importlib.util.find_spec("jobspy"):
-        results.append(("python-jobspy", "ok", "✅", "Job board scraping"))
+        results.append(("Jobspy", "ok", "●", "Installed"))
     else:
-        results.append(("python-jobspy", "warn", "⚠️", "pip install python-jobspy"))
+        results.append(("Jobspy", "warn", "●", "pip install python-jobspy"))
 
-    # Tier 2 checks
-    has_gemini = bool(os.environ.get("GEMINI_API_KEY"))
-    has_openai = bool(os.environ.get("OPENAI_API_KEY"))
-    has_local = bool(os.environ.get("LLM_URL"))
-    if has_gemini:
-        model = os.environ.get("LLM_MODEL", "gemini-2.0-flash")
-        results.append(("LLM API key", "ok", "✅", f"Gemini ({model})"))
-    elif has_openai:
-        model = os.environ.get("LLM_MODEL", "gpt-4o-mini")
-        results.append(("LLM API key", "ok", "✅", f"OpenAI ({model})"))
-    elif has_local:
-        results.append(("LLM API key", "ok", "✅", f"Local: {os.environ.get('LLM_URL')}"))
+    # Tier 2 checks (multi-provider)
+    from joborion.llm import _detect_providers, _validate_env
+    providers = _detect_providers()
+    if providers:
+        label = ", ".join(p.name for p in providers)
+        results.append(("LLM", "ok", "●", label))
     else:
-        results.append(("LLM API key", "fail", "❌", "Set GEMINI_API_KEY"))
+        results.append(("LLM", "fail", "●", "Set GEMINI_API_KEY, OPENAI_API_KEY, or LLM_URL"))
+    for warning in _validate_env():
+        results.append(("Env", "warn", "●", warning))
 
     # Tier 3 checks
     claude_bin = shutil.which("claude")
     if claude_bin:
-        results.append(("Claude Code CLI", "ok", "✅", claude_bin))
+        results.append(("Claude", "ok", "●", short_path(claude_bin)))
     else:
-        results.append(("Claude Code CLI", "fail", "❌", "Install from claude.ai/code"))
+        results.append(("Claude", "fail", "●", "Install from claude.ai/code"))
 
     try:
         chrome_path = get_chrome_path()
-        results.append(("Chrome/Chromium", "ok", "✅", chrome_path))
+        results.append(("Chrome", "ok", "●", short_path(chrome_path)))
     except FileNotFoundError:
-        results.append(("Chrome/Chromium", "fail", "❌", "Install Chrome"))
+        results.append(("Chrome", "fail", "●", "Install Chrome"))
 
     npx_bin = shutil.which("npx")
     if npx_bin:
-        results.append(("Node.js (npx)", "ok", "✅", npx_bin))
+        results.append(("Node.js", "ok", "●", short_path(npx_bin)))
     else:
-        results.append(("Node.js (npx)", "fail", "❌", "Install Node.js 18+"))
+        results.append(("Node.js", "fail", "●", "Install Node.js 18+"))
 
     capsolver = os.environ.get("CAPSOLVER_API_KEY")
     if capsolver:
-        results.append(("CapSolver API key", "ok", "✅", "CAPTCHA solving enabled"))
+        results.append(("CapSolver", "ok", "●", "Enabled"))
     else:
-        results.append(("CapSolver API key", "warn", "💡", "Optional: CAPTCHA solving"))
+        results.append(("CapSolver", "warn", "●", "Optional"))
 
     # Render results
-    table = make_doctor_table(results)
+    table = make_check_table(results)
     console.print(table)
 
-    # Tier summary
+    # Tier summary — compact single line
     from joborion.config import get_tier, TIER_LABELS
     tier = get_tier()
-
-    print_spacer()
-    print_tier_panel(tier, TIER_LABELS)
-    print_spacer()
+    tier_color = {1: "bright_yellow", 2: "bright_cyan", 3: "bright_green"}.get(tier, "white")
+    console.print()
+    console.print(f"[dim]  {'─' * 30}[/dim]")
+    console.print(f"[bold {tier_color}]  Tier {tier}  —  {TIER_LABELS[tier]}[/bold {tier_color}]")
 
 
 if __name__ == "__main__":

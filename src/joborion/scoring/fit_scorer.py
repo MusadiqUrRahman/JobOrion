@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 
 from joborion.config import RESUME_PATH
 from joborion.database import get_connection, get_jobs_by_stage
+from joborion.eligibility import constraints_from_profile, evaluate_job
 from joborion.llm import get_client
 
 log = logging.getLogger(__name__)
@@ -28,6 +29,16 @@ SCORING CRITERIA:
 - 3-4: Weak match. Significant skill gaps, would need substantial ramp-up.
 - 1-2: Poor match. Completely different field or experience level.
 
+CANDIDATE CONSTRAINTS:
+- Location: {candidate_location}
+- Work authorization: {work_auth}
+- Visa sponsorship required: {sponsorship}
+
+ELIGIBILITY RULES (HARD REJECT — always score 1):
+- The role requires onsite/office attendance in a country the candidate cannot work in.
+- The role requires work authorization the candidate does not have (e.g. "must be US citizen", "must have US work authorization", "sponsorship not available", "candidates must already be authorized to work in the US/UK/Canada", etc.).
+- The role is location-restricted to a country the candidate cannot work in, even if listed as "remote" (e.g. "Remote, US only", "remote — must reside in the US").
+
 IMPORTANT FACTORS:
 - Weight technical skills heavily (programming languages, frameworks, tools)
 - Consider transferable experience (automation, scripting, API work)
@@ -37,7 +48,7 @@ IMPORTANT FACTORS:
 RESPOND IN EXACTLY THIS FORMAT (no other text):
 SCORE: [1-10]
 KEYWORDS: [comma-separated ATS keywords from the job description that match or could match the candidate]
-REASONING: [2-3 sentences explaining the score]"""
+REASONING: [2-3 sentences explaining the score; if ineligible, say so explicitly]"""
 
 
 def _parse_score_response(response: str) -> dict:
@@ -69,16 +80,61 @@ def _parse_score_response(response: str) -> dict:
     return {"score": score, "keywords": keywords, "reasoning": reasoning}
 
 
-def score_job(resume_text: str, job: dict) -> dict:
+def _candidate_constraints() -> dict:
+    """Build candidate eligibility context from the user's profile."""
+    try:
+        from joborion.config import load_profile
+        profile = load_profile()
+    except Exception:
+        return {
+            "candidate_location": "unknown",
+            "work_auth": "unknown",
+            "sponsorship": "unknown",
+            "country": "",
+            "home_country": "",
+            "authorized_countries": [],
+            "sponsorship_needed": True,
+            "relocation_willing": False,
+            "legally_authorized": False,
+            "work_permit_type": "",
+        }
+    return constraints_from_profile(profile)
+
+
+def score_job(resume_text: str, job: dict, constraints: dict | None = None,
+              mode: str = "all") -> dict:
     """Score a single job against the resume.
 
     Args:
         resume_text: The candidate's full resume text.
         job: Job dict with keys: title, site, location, full_description.
+        constraints: Candidate eligibility context from _candidate_constraints().
+        mode: Search mode driving eligibility (remote/local/sponsorship/all).
 
     Returns:
-        {"score": int, "keywords": str, "reasoning": str}
+        {"score": int, "keywords": str, "reasoning": str,
+         "rejection_reason": str | None, "rejection_suggestion": str | None}
     """
+    if constraints is None:
+        constraints = _candidate_constraints()
+
+    try:
+        from joborion.config import load_profile
+        profile = load_profile()
+    except Exception:
+        profile = {}
+
+    elig = evaluate_job(job, profile, mode=mode)
+    if not elig.eligible:
+        return {
+            "score": 1,
+            "keywords": "",
+            "reasoning": f"Hard rejected: {elig.suggestion or elig.reason}",
+            "rejection_reason": elig.reason,
+            "rejection_suggestion": elig.suggestion,
+        }
+
+    prompt = SCORE_PROMPT.format(**constraints)
     job_text = (
         f"TITLE: {job['title']}\n"
         f"COMPANY: {job['site']}\n"
@@ -87,17 +143,26 @@ def score_job(resume_text: str, job: dict) -> dict:
     )
 
     messages = [
-        {"role": "system", "content": SCORE_PROMPT},
+        {"role": "system", "content": prompt},
         {"role": "user", "content": f"RESUME:\n{resume_text}\n\n---\n\nJOB POSTING:\n{job_text}"},
     ]
 
     try:
         client = get_client()
         response = client.chat(messages, max_tokens=512, temperature=0.2)
-        return _parse_score_response(response)
+        result = _parse_score_response(response)
+        result["rejection_reason"] = None
+        result["rejection_suggestion"] = None
+        return result
     except Exception as e:
         log.error("LLM error scoring job '%s': %s", job.get("title", "?"), e)
-        return {"score": 0, "keywords": "", "reasoning": f"LLM error: {e}"}
+        return {
+            "score": 0,
+            "keywords": "",
+            "reasoning": f"LLM error: {e}",
+            "rejection_reason": None,
+            "rejection_suggestion": None,
+        }
 
 
 def score_jobs(limit: int = 0, rescore: bool = False) -> dict:
@@ -111,7 +176,14 @@ def score_jobs(limit: int = 0, rescore: bool = False) -> dict:
         {"scored": int, "errors": int, "elapsed": float, "distribution": list}
     """
     resume_text = RESUME_PATH.read_text(encoding="utf-8")
+    constraints = _candidate_constraints()
     conn = get_connection()
+
+    try:
+        from joborion.config import load_search_config
+        mode = load_search_config().get("defaults", {}).get("search_mode", "all")
+    except Exception:
+        mode = "all"
 
     if rescore:
         query = "SELECT * FROM jobs WHERE full_description IS NOT NULL"
@@ -137,7 +209,7 @@ def score_jobs(limit: int = 0, rescore: bool = False) -> dict:
     results: list[dict] = []
 
     for job in jobs:
-        result = score_job(resume_text, job)
+        result = score_job(resume_text, job, constraints, mode=mode)
         result["url"] = job["url"]
         completed += 1
 
@@ -155,8 +227,10 @@ def score_jobs(limit: int = 0, rescore: bool = False) -> dict:
     now = datetime.now(timezone.utc).isoformat()
     for r in results:
         conn.execute(
-            "UPDATE jobs SET fit_score = ?, score_reasoning = ?, scored_at = ? WHERE url = ?",
-            (r["score"], f"{r['keywords']}\n{r['reasoning']}", now, r["url"]),
+            "UPDATE jobs SET fit_score = ?, score_reasoning = ?, scored_at = ?, "
+            "rejection_reason = ?, rejection_suggestion = ? WHERE url = ?",
+            (r["score"], f"{r['keywords']}\n{r['reasoning']}", now,
+             r.get("rejection_reason"), r.get("rejection_suggestion"), r["url"]),
         )
     conn.commit()
 

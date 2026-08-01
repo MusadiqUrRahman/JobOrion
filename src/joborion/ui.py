@@ -908,27 +908,30 @@ def print_reflection_card(result: dict, ref_id: str) -> None:
 # ─── Doctor / System Health ──────────────────────────────────────────────────
 
 
-def make_doctor_table(results: list[tuple[str, str, str, str]]) -> Table:
-    """Create a beautiful system health table."""
-    table = _make_base_table("🩺 System Health", border_style="bright_cyan")
-
-    table.add_column("Component", style="bold", width=22)
-    table.add_column("Status", justify="center", width=10)
-    table.add_column("Details", width=40)
+def make_check_table(results: list[tuple[str, str, str, str]]) -> Table:
+    """Create a clean system health table with minimal visual noise."""
+    table = Table(
+        box=box.SIMPLE,
+        show_header=False,
+        border_style="dim bright_cyan",
+        padding=(0, 1),
+    )
+    table.add_column(width=14, no_wrap=True)
+    table.add_column(width=2, no_wrap=True)
+    table.add_column()
 
     for check, status, emoji, note in results:
         if status == "ok":
-            style = "bright_green"
+            icon = Text("●", style="bright_green")
+            c = Text(check, style="bold bright_white")
         elif status == "warn":
-            style = "bright_yellow"
+            icon = Text("●", style="bright_yellow")
+            c = Text(check, style="bright_yellow")
         else:
-            style = "bright_red"
+            icon = Text("●", style="bright_red")
+            c = Text(check, style="bright_red")
 
-        table.add_row(
-            Text(check, style="bold bright_white"),
-            Text(f" {emoji} ", style=style),
-            Text(note, style="dim"),
-        )
+        table.add_row(c, icon, Text(note, style="dim white"))
 
     return table
 
@@ -965,6 +968,78 @@ def print_tier_panel(tier: int, labels: dict) -> None:
         box=box.ROUNDED,
         padding=(0, 1),
     ))
+
+
+def make_jobs_table(
+    jobs: list[dict],
+    show_description: bool = False,
+) -> Table:
+    """Create a browsable jobs table with key details."""
+    table = _make_base_table("📋 Jobs", border_style="bright_cyan")
+
+    table.add_column("#", justify="right", width=4)
+    table.add_column("Title")
+    table.add_column("Site", width=12)
+    table.add_column("Location")
+    table.add_column("Score", justify="center", width=6)
+    table.add_column("Status", width=12)
+
+    rejected = any(j.get("rejection_reason") for j in jobs)
+    if rejected:
+        table.add_column("Rejected", width=22)
+        table.add_column("Why / Fix")
+
+    if show_description:
+        table.add_column("Description", width=60)
+
+    for i, job in enumerate(jobs, 1):
+        score = job.get("fit_score")
+        if score is None:
+            score_str = "  -"
+        elif score >= 7:
+            score_str = f"* {score}"
+        elif score >= 4:
+            score_str = f"~ {score}"
+        else:
+            score_str = f"  {score}"
+
+        tailored = job.get("tailored_resume_path")
+        applied = job.get("applied_at")
+        if applied:
+            status = "Applied"
+        elif tailored:
+            status = "Tailored"
+        elif job.get("fit_score") is not None:
+            status = "Scored"
+        elif job.get("full_description"):
+            status = "Detailed"
+        else:
+            status = "New"
+
+        title = (job.get("title") or "Untitled")[:40]
+        site = (job.get("site") or job.get("source") or "?")[:10]
+        location = (job.get("location") or "-")[:20]
+        status = status[:10]
+
+        row = [str(i), title, site, location, score_str, status]
+
+        if rejected:
+            reason = job.get("rejection_reason")
+            if reason:
+                suggestion = job.get("rejection_suggestion") or "See job details."
+                row.append(("Rejected: " + reason)[:22])
+                row.append(suggestion[:60])
+            else:
+                row.append("-")
+                row.append("-")
+
+        if show_description:
+            desc = (job.get("full_description") or job.get("description") or "")[:300]
+            row.append(desc)
+
+        table.add_row(*row)
+
+    return table
 
 
 # ─── Utility ─────────────────────────────────────────────────────────────────

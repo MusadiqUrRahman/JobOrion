@@ -193,7 +193,9 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
 
 def mark_result(url: str, status: str, error: str | None = None,
                 permanent: bool = False, duration_ms: int | None = None,
-                task_id: str | None = None) -> None:
+                task_id: str | None = None,
+                rejection_reason: str | None = None,
+                rejection_suggestion: str | None = None) -> None:
     """Update a job's apply status in the database."""
     conn = get_connection()
     now = datetime.now(timezone.utc).isoformat()
@@ -201,17 +203,21 @@ def mark_result(url: str, status: str, error: str | None = None,
         conn.execute("""
             UPDATE jobs SET apply_status = 'applied', applied_at = ?,
                            apply_error = NULL, agent_id = NULL,
-                           apply_duration_ms = ?, apply_task_id = ?
+                           apply_duration_ms = ?, apply_task_id = ?,
+                           rejection_reason = NULL, rejection_suggestion = NULL
             WHERE url = ?
         """, (now, duration_ms, task_id, url))
     else:
         attempts = 99 if permanent else "COALESCE(apply_attempts, 0) + 1"
+        reason = rejection_reason or (error or "unknown")
+        suggestion = rejection_suggestion or _failure_suggestion(error or "")
         conn.execute(f"""
             UPDATE jobs SET apply_status = ?, apply_error = ?,
                            apply_attempts = {attempts}, agent_id = NULL,
-                           apply_duration_ms = ?, apply_task_id = ?
+                           apply_duration_ms = ?, apply_task_id = ?,
+                           rejection_reason = ?, rejection_suggestion = ?
             WHERE url = ?
-        """, (status, error or "unknown", duration_ms, task_id, url))
+        """, (status, error or "unknown", duration_ms, task_id, reason, suggestion, url))
     conn.commit()
 
 
@@ -279,15 +285,18 @@ def mark_job(url: str, status: str, reason: str | None = None) -> None:
     if status == "applied":
         conn.execute("""
             UPDATE jobs SET apply_status = 'applied', applied_at = ?,
-                           apply_error = NULL, agent_id = NULL
+                           apply_error = NULL, agent_id = NULL,
+                           rejection_reason = NULL, rejection_suggestion = NULL
             WHERE url = ?
         """, (now, url))
     else:
         conn.execute("""
             UPDATE jobs SET apply_status = 'failed', apply_error = ?,
-                           apply_attempts = 99, agent_id = NULL
+                           apply_attempts = 99, agent_id = NULL,
+                           rejection_reason = ?, rejection_suggestion = ?
             WHERE url = ?
-        """, (reason or "manual", url))
+        """, (reason or "manual", reason or "manual",
+              _failure_suggestion(reason) if reason else None, url))
     conn.commit()
 
 
@@ -300,7 +309,8 @@ def reset_failed() -> int:
     conn = get_connection()
     cursor = conn.execute("""
         UPDATE jobs SET apply_status = NULL, apply_error = NULL,
-                       apply_attempts = 0, agent_id = NULL
+                       apply_attempts = 0, agent_id = NULL,
+                       rejection_reason = NULL, rejection_suggestion = NULL
         WHERE apply_status = 'failed'
           OR (apply_status IS NOT NULL AND apply_status != 'applied'
               AND apply_status != 'in_progress')
@@ -633,6 +643,45 @@ PERMANENT_FAILURES: set[str] = {
 }
 
 PERMANENT_PREFIXES: tuple[str, ...] = ("site_blocked", "cloudflare", "blocked_by")
+
+# Human-readable, actionable advice per permanent failure reason.
+PERMANENT_FAILURE_SUGGESTIONS: dict[str, str] = {
+    "not_eligible_location": (
+        "This role is not in a location you're eligible for. Switch search mode "
+        "(--mode sponsorship to include international roles, --mode local to stay "
+        "in your home country) or update your profile's authorized countries."
+    ),
+    "not_eligible_salary": (
+        "The role's salary is below your floor. Consider adjusting your salary "
+        "expectation in the profile."
+    ),
+    "expired": (
+        "This posting has expired. It will not be retried."
+    ),
+    "already_applied": (
+        "You've already applied to this role. It will not be retried."
+    ),
+    "captcha": (
+        "The site served a captcha. Consider a manual application or --workers 1 "
+        "to reduce detection signals."
+    ),
+    "account_required": (
+        "This site requires an account/login to apply. Add credentials to your "
+        "profile or apply manually."
+    ),
+    "sso_required": (
+        "This role uses SSO (e.g. LinkedIn) which can't be automated. Apply manually."
+    ),
+    "login_issue": (
+        "Login failed. Check your job-site password in the profile."
+    ),
+}
+
+
+def _failure_suggestion(result: str) -> str | None:
+    """Return an actionable suggestion for a failure reason, if known."""
+    reason = result.rsplit(":", 1)[-1] if ":" in result else result
+    return PERMANENT_FAILURE_SUGGESTIONS.get(reason)
 
 
 def _is_permanent_failure(result: str) -> bool:

@@ -39,8 +39,10 @@ class ScoreSingleJobTool(Tool):
 
             now = datetime.now(timezone.utc).isoformat()
             conn.execute(
-                "UPDATE jobs SET fit_score = ?, score_reasoning = ?, scored_at = ? WHERE url = ?",
-                (result["score"], f"{result['keywords']}\n{result['reasoning']}", now, url),
+                "UPDATE jobs SET fit_score = ?, score_reasoning = ?, scored_at = ?, "
+                "rejection_reason = ?, rejection_suggestion = ? WHERE url = ?",
+                (result["score"], f"{result['keywords']}\n{result['reasoning']}", now,
+                 result.get("rejection_reason"), result.get("rejection_suggestion"), url),
             )
             conn.commit()
 

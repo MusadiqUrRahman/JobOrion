@@ -75,7 +75,7 @@ UPSTREAM_DEPS: dict[str, str | None] = {
 # Individual stage runners
 # ---------------------------------------------------------------------------
 
-def _run_discovery_stage(workers: int = 1) -> dict:
+def _run_discovery_stage(workers: int = 1, mode: str | None = None) -> dict:
     """Stage: Job discovery — JobSpy, Workday, and smart-extract scrapers.
 
     Uses smart source routing: checks site_memory to skip blocked sources,
@@ -107,7 +107,7 @@ def _run_discovery_stage(workers: int = 1) -> dict:
                 from joborion.discovery.jobspy import scrape_jobspy
                 import time
                 t0 = time.time()
-                scrape_jobspy()
+                scrape_jobspy(mode=mode)
                 elapsed_ms = int((time.time() - t0) * 1000)
                 stats["jobspy"] = "ok"
                 record_source_run("jobspy", success=True, jobs_found=0)
@@ -329,6 +329,7 @@ def _run_stage_streaming(
     min_score: int = 7,
     workers: int = 1,
     validation_mode: str = "normal",
+    mode: str | None = None,
 ) -> None:
     """Run a single stage in streaming mode: loop until upstream done + no work.
 
@@ -343,6 +344,8 @@ def _run_stage_streaming(
         kwargs["validation_mode"] = validation_mode
     if stage in ("search", "details"):
         kwargs["workers"] = workers
+    if stage == "search":
+        kwargs["mode"] = mode
 
     upstream = UPSTREAM_DEPS[stage]
 
@@ -391,7 +394,7 @@ def _run_stage_streaming(
 # ---------------------------------------------------------------------------
 
 def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
-                    validation_mode: str = "normal") -> dict:
+                    validation_mode: str = "normal", mode: str | None = None) -> dict:
     """Execute stages one at a time (original behavior)."""
     results: list[dict] = []
     errors: dict[str, str] = {}
@@ -419,6 +422,8 @@ def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
                 kwargs["validation_mode"] = validation_mode
             if name in ("search", "details"):
                 kwargs["workers"] = workers
+            if name == "search":
+                kwargs["mode"] = mode
             result = runner(**kwargs)
             elapsed = time.time() - t0
 
@@ -450,7 +455,7 @@ def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
 
 
 def _run_streaming(ordered: list[str], min_score: int, workers: int = 1,
-                   validation_mode: str = "normal") -> dict:
+                   validation_mode: str = "normal", mode: str | None = None) -> dict:
     """Execute stages concurrently with DB as conveyor belt."""
     tracker = _ConcurrentStageTracker()
     stop_event = threading.Event()
@@ -470,7 +475,7 @@ def _run_streaming(ordered: list[str], min_score: int, workers: int = 1,
         start_times[name] = time.time()
         t = threading.Thread(
             target=_run_stage_streaming,
-            args=(name, tracker, stop_event, min_score, workers, validation_mode),
+            args=(name, tracker, stop_event, min_score, workers, validation_mode, mode),
             name=f"stage-{name}",
             daemon=True,
         )
@@ -514,6 +519,7 @@ def run_pipeline(
     stream: bool = False,
     workers: int = 1,
     validation_mode: str = "normal",
+    mode: str | None = None,
 ) -> dict:
     """Run pipeline stages.
 
@@ -523,6 +529,8 @@ def run_pipeline(
         dry_run: If True, preview stages without executing.
         stream: If True, run stages concurrently (streaming mode).
         workers: Number of parallel threads for discovery/enrichment stages.
+        validation_mode: Validation strictness (strict/normal/lenient).
+        mode: Search mode override (remote/local/sponsorship/all).
 
     Returns:
         Dict with keys: stages (list of result dicts), errors (dict), elapsed (float).
@@ -566,10 +574,10 @@ def run_pipeline(
     # Execute
     if stream:
         result = _run_streaming(ordered, min_score, workers=workers,
-                                validation_mode=validation_mode)
+                                validation_mode=validation_mode, mode=mode)
     else:
         result = _run_sequential(ordered, min_score, workers=workers,
-                                 validation_mode=validation_mode)
+                                 validation_mode=validation_mode, mode=mode)
 
     # Finish run log
     final_stats = get_stats()

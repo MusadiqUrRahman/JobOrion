@@ -109,6 +109,16 @@ def _setup_profile() -> dict:
         "legally_authorized_to_work": Confirm.ask("Are you legally authorized to work in your target country?"),
         "require_sponsorship": Confirm.ask("Will you now or in the future need sponsorship?"),
         "work_permit_type": Prompt.ask("Work permit type (e.g. Citizen, PR, Open Work Permit — leave blank if N/A)", default=""),
+        "authorized_countries": [
+            s.strip() for s in Prompt.ask(
+                "Countries you're authorized to work in (comma-separated; blank = your country only)",
+                default="",
+            ).split(",") if s.strip()
+        ],
+        "relocation_willing": Confirm.ask(
+            "Willing to relocate to another country for a role?",
+            default=False,
+        ),
     }
 
     # -- Compensation --
@@ -187,8 +197,20 @@ def _setup_searches() -> None:
     """Generate a searches.yaml from user input."""
     console.print(Panel("[bold]Step 3: Job Search Config[/bold]\nDefine what you're looking for."))
 
-    location = Prompt.ask("Target location (e.g. 'Remote', 'Canada', 'New York, NY')", default="Remote")
-    distance_str = Prompt.ask("Search radius in miles (0 for remote-only)", default="0")
+    remote_only = Confirm.ask(
+        "Only look for remote / work-from-home jobs?",
+        default=False,
+    )
+    search_mode = Prompt.ask(
+        "Search mode",
+        choices=["remote", "local", "sponsorship", "all"],
+        default="remote" if remote_only else "all",
+    )
+    location = Prompt.ask(
+        "Target location (e.g. 'Remote', 'Canada', 'New York, NY', 'Lahore, Pakistan')",
+        default="Remote" if remote_only else "",
+    )
+    distance_str = Prompt.ask("Search radius in miles (0 for no radius)", default="0")
     try:
         distance = int(distance_str)
     except ValueError:
@@ -213,10 +235,12 @@ def _setup_searches() -> None:
         f"  distance: {distance}",
         "  hours_old: 72",
         "  results_per_site: 50",
+        f"  remote_only: {str(remote_only).lower()}",
+        f"  search_mode: {search_mode}",
         "",
         "locations:",
         f'  - location: "{location}"',
-        f"    remote: {str(distance == 0).lower()}",
+        f"    remote: {str(remote_only).lower()}",
         "",
         "queries:",
     ]
@@ -233,45 +257,132 @@ def _setup_searches() -> None:
 # ---------------------------------------------------------------------------
 
 def _setup_ai_features() -> None:
-    """Ask about AI scoring/tailoring — optional LLM configuration."""
+    """Configure LLM providers for AI scoring, tailoring, and cover letters.
+
+    Generates a comprehensive .env with all supported providers pre-configured.
+    The user only needs to paste API key(s) — base URLs and models are preset.
+    Multiple keys mean automatic failover on rate limits.
+    """
     console.print(Panel(
         "[bold]Step 4: AI Features (optional)[/bold]\n"
         "An LLM powers job scoring, resume tailoring, and cover letters.\n"
-        "Without this, you can still discover and enrich jobs."
+        "Configure one or more providers below. Multiple providers enable\n"
+        "automatic failover if one hits rate limits.\n\n"
+        "Supported: [bold]Gemini[/bold] (free), [bold]Anthropic[/bold] (Claude),\n"
+        "[bold]OpenAI[/bold], [bold]OpenRouter[/bold], [bold]DeepSeek[/bold],\n"
+        "other OpenAI-compatible APIs, and local [bold]Ollama[/bold]."
     ))
 
     if not Confirm.ask("Enable AI scoring and resume tailoring?", default=True):
         console.print("[dim]Discovery-only mode. You can configure AI later with [bold]joborion init[/bold].[/dim]")
         return
 
-    console.print("Supported providers: [bold]Gemini[/bold] (recommended, free tier), OpenAI, local (Ollama/llama.cpp)")
-    provider = Prompt.ask(
-        "Provider",
-        choices=["gemini", "openai", "local"],
-        default="gemini",
-    )
+    env_lines = [
+        "# =============================================================================",
+        "# JobOrion LLM Configuration",
+        "# =============================================================================",
+        "# Paste API key(s) for your preferred provider(s).",
+        "# All providers are pre-configured — you only need to paste your key(s).",
+        "#",
+        "# Multiple keys = automatic failover on rate limits.",
+        "# Priority: Gemini (free) -> Anthropic -> OpenAI -> Custom -> Local",
+        "# =============================================================================",
+        "",
+    ]
 
-    env_lines = ["# JobOrion configuration", ""]
-
-    if provider == "gemini":
-        api_key = Prompt.ask("Gemini API key (from aistudio.google.com)")
-        model = Prompt.ask("Model", default="gemini-2.0-flash")
-        env_lines.append(f"GEMINI_API_KEY={api_key}")
-        env_lines.append(f"LLM_MODEL={model}")
-    elif provider == "openai":
-        api_key = Prompt.ask("OpenAI API key")
-        model = Prompt.ask("Model", default="gpt-4o-mini")
-        env_lines.append(f"OPENAI_API_KEY={api_key}")
-        env_lines.append(f"LLM_MODEL={model}")
-    elif provider == "local":
-        url = Prompt.ask("Local LLM endpoint URL", default="http://localhost:8080/v1")
-        model = Prompt.ask("Model name", default="local-model")
-        env_lines.append(f"LLM_URL={url}")
-        env_lines.append(f"LLM_MODEL={model}")
-
+    # -- Gemini --
+    console.print("\n[bold cyan]Option 1: Google Gemini[/bold cyan] [green](recommended, free tier)[/green]")
+    console.print("  Get API key: https://aistudio.google.com/apikey")
+    gemini_key = Prompt.ask("  Gemini API key (leave blank to skip)", default="")
+    if gemini_key.strip():
+        gemini_model = Prompt.ask("  Model", default="gemini-2.0-flash")
+        env_lines.append(f"GEMINI_API_KEY={gemini_key.strip()}")
+        env_lines.append(f"GEMINI_MODEL={gemini_model.strip()}")
+    else:
+        env_lines.append("# GEMINI_API_KEY=")
+        env_lines.append("# GEMINI_MODEL=gemini-2.0-flash")
     env_lines.append("")
+
+    # -- Anthropic --
+    console.print("\n[bold cyan]Option 2: Anthropic (Claude)[/bold cyan]")
+    console.print("  Get API key: https://console.anthropic.com/settings/keys")
+    anthropic_key = Prompt.ask("  Anthropic API key (leave blank to skip)", default="")
+    if anthropic_key.strip():
+        anthropic_model = Prompt.ask("  Model", default="claude-sonnet-4-20250514")
+        env_lines.append(f"ANTHROPIC_API_KEY={anthropic_key.strip()}")
+        env_lines.append(f"ANTHROPIC_MODEL={anthropic_model.strip()}")
+    else:
+        env_lines.append("# ANTHROPIC_API_KEY=")
+        env_lines.append("# ANTHROPIC_MODEL=claude-sonnet-4-20250514")
+    env_lines.append("")
+
+    # -- OpenAI --
+    console.print("\n[bold cyan]Option 3: OpenAI[/bold cyan]")
+    console.print("  Get API key: https://platform.openai.com/api-keys")
+    openai_key = Prompt.ask("  OpenAI API key (leave blank to skip)", default="")
+    if openai_key.strip():
+        openai_model = Prompt.ask("  Model", default="gpt-4o-mini")
+        env_lines.append(f"OPENAI_API_KEY={openai_key.strip()}")
+        env_lines.append(f"OPENAI_MODEL={openai_model.strip()}")
+        env_lines.append("# OPENAI_BASE_URL=    (set only for OpenRouter or custom endpoints)")
+    else:
+        env_lines.append("# OPENAI_API_KEY=")
+        env_lines.append("# OPENAI_MODEL=gpt-4o-mini")
+        env_lines.append("# OPENAI_BASE_URL=")
+    env_lines.append("")
+
+    # -- OpenRouter (uses OPENAI_API_KEY + OPENAI_BASE_URL) --
+    console.print("\n[bold cyan]Option 4: OpenRouter[/bold cyan] [dim](200+ models)[/dim]")
+    console.print("  Get API key: https://openrouter.ai/keys")
+    console.print("  [dim]Uses OPENAI_API_KEY with a custom base URL.[/dim]")
+    or_key = Prompt.ask("  OpenRouter API key (leave blank to skip)", default="")
+    if or_key.strip():
+        or_model = Prompt.ask("  Model", default="gpt-4o-mini")
+        env_lines.append(f"OPENAI_API_KEY={or_key.strip()}")
+        env_lines.append("OPENAI_BASE_URL=https://openrouter.ai/api/v1")
+        env_lines.append(f"OPENAI_MODEL={or_model.strip()}")
+    env_lines.append("")
+
+    # -- Custom OpenAI-compatible (DeepSeek, Together, Groq, etc.) --
+    console.print("\n[bold cyan]Option 5: Custom OpenAI-compatible[/bold cyan] [dim](DeepSeek, Together, Groq, etc.)[/dim]")
+    custom_key = Prompt.ask("  API key (leave blank to skip)", default="")
+    if custom_key.strip():
+        custom_base = Prompt.ask("  Base URL", default="https://api.deepseek.com/v1")
+        custom_model = Prompt.ask("  Model", default="deepseek-chat")
+        env_lines.append(f"CUSTOM_API_KEY={custom_key.strip()}")
+        env_lines.append(f"CUSTOM_BASE_URL={custom_base.strip()}")
+        env_lines.append(f"CUSTOM_MODEL={custom_model.strip()}")
+    else:
+        env_lines.append("# CUSTOM_API_KEY=")
+        env_lines.append("# CUSTOM_BASE_URL=")
+        env_lines.append("# CUSTOM_MODEL=deepseek-chat")
+    env_lines.append("")
+
+    # -- Local --
+    console.print("\n[bold cyan]Option 6: Local (Ollama / llama.cpp)[/bold cyan]")
+    local_url = Prompt.ask("  Local endpoint URL (leave blank to skip)", default="")
+    if local_url.strip():
+        local_model = Prompt.ask("  Model name", default="llama3.2:3b")
+        env_lines.append(f"LLM_URL={local_url.strip()}")
+        env_lines.append(f"LLM_MODEL={local_model.strip()}")
+        local_key = Prompt.ask("  API key (if required)", default="")
+        if local_key.strip():
+            env_lines.append(f"LLM_API_KEY={local_key.strip()}")
+    else:
+        env_lines.append("# LLM_URL=")
+        env_lines.append("# LLM_MODEL=llama3.2:3b")
+        env_lines.append("# LLM_API_KEY=")
+    env_lines.append("")
+
+    # -- Global settings --
+    env_lines.append("# -- Global settings --")
+    env_lines.append("LLM_MAX_CALLS=500")
+    env_lines.append("LLM_MAX_COST=5.0")
+    env_lines.append("")
+
     ENV_PATH.write_text("\n".join(env_lines), encoding="utf-8")
-    console.print(f"[green]AI configuration saved to {ENV_PATH}[/green]")
+    console.print(f"\n[green]AI configuration saved to {ENV_PATH}[/green]")
+    console.print("[dim]You can re-run this anytime or edit the file directly.[/dim]")
 
 
 # ---------------------------------------------------------------------------

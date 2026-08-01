@@ -47,17 +47,21 @@ def _load_location_filter(search_cfg: dict | None = None):
 
     accept = search_cfg.get("location_accept", [])
     reject = search_cfg.get("location_reject_non_remote", [])
-    return accept, reject
+    remote_only = search_cfg.get("defaults", {}).get("search_mode", "all") == "remote"
+    return accept, reject, remote_only
 
 
-def _location_ok(location: str | None, accept: list[str], reject: list[str]) -> bool:
+def _location_ok(location: str | None, accept: list[str], reject: list[str],
+                 remote_only: bool = False) -> bool:
     """Check if a job location passes the user's location filter."""
     if not location:
         return True
 
     loc = location.lower()
-
-    if any(r in loc for r in ("remote", "anywhere", "work from home", "wfh", "distributed")):
+    is_remote = any(r in loc for r in ("remote", "anywhere", "work from home", "wfh", "distributed"))
+    if remote_only and not is_remote:
+        return False
+    if is_remote:
         return True
 
     for r in reject:
@@ -194,6 +198,7 @@ def search_employer(
     max_results: int = 0,
     accept_locs: list[str] | None = None,
     reject_locs: list[str] | None = None,
+    remote_only: bool = False,
 ) -> list[dict]:
     """Search an employer, paginate through all results, optionally filter by location."""
     log.info("%s: searching \"%s\"...", employer["name"], search_text)
@@ -222,7 +227,7 @@ def search_employer(
         for j in postings:
             loc = j.get("locationsText", "")
             if location_filter and accept_locs is not None and reject_locs is not None:
-                if not _location_ok(loc, accept_locs, reject_locs):
+                if not _location_ok(loc, accept_locs, reject_locs, remote_only):
                     continue
 
             all_jobs.append({
@@ -347,6 +352,7 @@ def _process_one(
     location_filter: bool,
     accept_locs: list[str],
     reject_locs: list[str],
+    remote_only: bool = False,
 ) -> dict:
     """Search one employer, fetch details, store results."""
     emp = employers[employer_key]
@@ -357,6 +363,7 @@ def _process_one(
             location_filter=location_filter,
             accept_locs=accept_locs,
             reject_locs=reject_locs,
+            remote_only=remote_only,
         )
     except Exception as e:
         log.error("%s: ERROR searching '%s': %s", emp["name"], search_text, e)
@@ -391,6 +398,7 @@ def scrape_employers(
     accept_locs: list[str] | None = None,
     reject_locs: list[str] | None = None,
     workers: int = 1,
+    remote_only: bool = False,
 ) -> dict:
     """Run full scrape: search -> filter -> detail -> store.
 
@@ -423,7 +431,7 @@ def scrape_employers(
             futures = {
                 pool.submit(
                     _process_one, key, employers, search_text,
-                    location_filter, accept_locs, reject_locs,
+                    location_filter, accept_locs, reject_locs, remote_only,
                 ): key
                 for key in valid_keys
             }
@@ -446,7 +454,7 @@ def scrape_employers(
         for key in valid_keys:
             result = _process_one(
                 key, employers, search_text,
-                location_filter, accept_locs, reject_locs,
+                location_filter, accept_locs, reject_locs, remote_only,
             )
             completed += 1
             total_new += result["new"]
@@ -492,7 +500,7 @@ def scrape_workday(employers: dict | None = None, workers: int = 1) -> dict:
 
     search_cfg = config.load_search_config()
     queries_cfg = search_cfg.get("queries", [])
-    accept_locs, reject_locs = _load_location_filter(search_cfg)
+    accept_locs, reject_locs, remote_only = _load_location_filter(search_cfg)
 
     # Default to tier 1-2 queries for workday scraping
     max_tier = search_cfg.get("workday_max_tier", 2)
@@ -527,6 +535,7 @@ def scrape_workday(employers: dict | None = None, workers: int = 1) -> dict:
             accept_locs=accept_locs,
             reject_locs=reject_locs,
             workers=workers,
+            remote_only=remote_only,
         )
         grand_new += result["new"]
         grand_existing += result["existing"]
