@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from joborion.agent.orchestrator import Orchestrator, BudgetExceeded
-from joborion.agent.planner import Plan, PlanStep
+from joborion.agent.planner import Plan, PlanStep, Planner
 from joborion.agent.tools import ActionResult
 from joborion.agent.registry import ToolRegistry
 
@@ -41,14 +41,16 @@ class TestOrchestratorPlan:
 
 
 class TestOrchestratorExecute:
-    def test_execute_with_mocked_tools(self):
+    @patch.object(Orchestrator, "_build_planner", return_value=Planner())
+    def test_execute_with_mocked_tools(self, _mock_planner):
         registry = _make_registry(["search_jobspy", "search_workday", "search_ai_sites"])
         orch = Orchestrator(goal="Find Python jobs", registry=registry)
         result = orch.execute()
         assert result["status"] == "completed"
         assert result["total_cost"] >= 0.0
 
-    def test_execute_tool_failure(self):
+    @patch.object(Orchestrator, "_build_planner", return_value=Planner())
+    def test_execute_tool_failure(self, _mock_planner):
         registry = ToolRegistry()
         tool = MagicMock()
         tool.name = "search_jobspy"
