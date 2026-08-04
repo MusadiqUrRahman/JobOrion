@@ -1,4 +1,4 @@
-# JobOrion  
+# JobOrion
 
 AI-powered end-to-end job application pipeline. Discovers jobs, scores fit, tailors resumes, writes cover letters, and auto-applies — all from the command line.
 
