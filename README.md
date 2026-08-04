@@ -2,6 +2,8 @@
 
 AI-powered end-to-end job application pipeline. Discovers jobs, scores fit, tailors resumes, writes cover letters, and auto-applies — all from the command line.
 
+<!-- commitagent: 2026-08-04T01:53:12.987Z -->
+
 ## Requirements
 
 - Python 3.11+
