@@ -1,5 +1,6 @@
 """Tests for joborion.sourcing.filter — the relevance gate (LLM-free)."""
 
+import httpx
 import pytest
 
 from joborion.database import init_db, close_connection
@@ -9,6 +10,7 @@ from joborion.sourcing.filter import (
     evaluate,
     location_matches,
     title_matches,
+    verify_apply_urls,
 )
 from joborion.sourcing.normalize import normalize_job
 
@@ -315,3 +317,126 @@ class TestApplyRelevanceGate:
         )
         assert summary["passed"] == 1
         assert summary["dropped"] == 0
+
+
+class TestVerifyApplyUrls:
+    """Dead-link verification on apply_url_direct before scoring/apply."""
+
+    @staticmethod
+    def _insert(conn, url, apply_url, status=None, checked_at=None, applied_at=None):
+        conn.execute(
+            "INSERT INTO jobs (url, title, company, description, site, is_remote, "
+            "apply_url_direct, apply_status, apply_checked_at, applied_at) "
+            "VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)",
+            (url, "Senior Engineer", "Acme", "desc", "jobspy", apply_url,
+             status, checked_at, applied_at),
+        )
+        conn.commit()
+
+    @staticmethod
+    def _client(statuses, follow_redirects=False):
+        def handler(request):
+            return httpx.Response(
+                statuses.get(str(request.url), 200), request=request
+            )
+        return httpx.Client(
+            transport=httpx.MockTransport(handler), follow_redirects=follow_redirects
+        )
+
+    def test_marks_expired_urls(self, conn):
+        self._insert(conn, "https://src.example/1", "https://dead.example/a")
+        self._insert(conn, "https://src.example/2", "https://dead.example/b")
+        client = self._client({
+            "https://dead.example/a": 404,
+            "https://dead.example/b": 410,
+        })
+        summary = verify_apply_urls(conn, client=client)
+        assert summary["checked"] == 2
+        assert summary["expired"] == 2
+        assert summary["alive"] == 0
+        rows = conn.execute(
+            "SELECT apply_status, apply_error FROM jobs "
+            "WHERE apply_url_direct IS NOT NULL"
+        ).fetchall()
+        assert {row["apply_status"] for row in rows} == {"expired"}
+        errors = " | ".join(row["apply_error"] for row in rows)
+        assert "404" in errors and "410" in errors
+
+    def test_keeps_alive_links(self, conn):
+        self._insert(conn, "https://src.example/1", "https://ok.example/a")
+        client = self._client({"https://ok.example/a": 200})
+        summary = verify_apply_urls(conn, client=client)
+        assert summary["checked"] == 1
+        assert summary["alive"] == 1
+        assert summary["expired"] == 0
+        row = conn.execute(
+            "SELECT apply_status, apply_checked_at FROM jobs"
+        ).fetchone()
+        assert row["apply_status"] is None
+        assert row["apply_checked_at"] is not None
+
+    def test_falls_back_to_get_when_head_blocked(self, conn):
+        self._insert(conn, "https://src.example/1", "https://board.example/a")
+        def handler(request):
+            if request.method == "HEAD":
+                return httpx.Response(405, request=request)
+            return httpx.Response(200, request=request)
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        summary = verify_apply_urls(conn, client=client)
+        assert summary["checked"] == 1
+        assert summary["alive"] == 1
+        assert summary["expired"] == 0
+
+    def test_follows_redirects_to_alive_page(self, conn):
+        self._insert(conn, "https://src.example/1", "https://board.example/r")
+        def handler(request):
+            if request.url.path == "/r":
+                return httpx.Response(302, request=request,
+                                      headers={"location": "https://board.example/landing"})
+            return httpx.Response(200, request=request)
+        client = httpx.Client(
+            transport=httpx.MockTransport(handler), follow_redirects=True
+        )
+        summary = verify_apply_urls(conn, client=client)
+        assert summary["alive"] == 1
+        assert summary["expired"] == 0
+
+    def test_skips_transient_and_bot_blocked(self, conn):
+        self._insert(conn, "https://src.example/1", "https://busy.example/503")
+        self._insert(conn, "https://src.example/2", "https://busy.example/429")
+        self._insert(conn, "https://src.example/3", "https://busy.example/403")
+        client = self._client({
+            "https://busy.example/503": 503,
+            "https://busy.example/429": 429,
+            "https://busy.example/403": 403,
+        })
+        summary = verify_apply_urls(conn, client=client)
+        assert summary["checked"] == 3
+        assert summary["skipped"] == 3
+        assert summary["expired"] == 0
+        rows = conn.execute("SELECT apply_status FROM jobs").fetchall()
+        assert all(row["apply_status"] is None for row in rows)
+
+    def test_skips_non_actionable_jobs(self, conn):
+        self._insert(conn, "https://src.example/1", "https://x.example/a",
+                     status="expired")
+        self._insert(conn, "https://src.example/2", "https://x.example/b",
+                     status="in_progress")
+        self._insert(conn, "https://src.example/3", "https://x.example/c",
+                     applied_at="2026-01-01T00:00:00Z")
+        summary = verify_apply_urls(conn, client=self._client({}))
+        assert summary["checked"] == 0
+
+    def test_respects_recent_checks(self, conn):
+        self._insert(conn, "https://src.example/1", "https://ok.example/a",
+                     checked_at="2026-08-05T00:00:00+00:00")
+        summary = verify_apply_urls(conn, client=self._client({}))
+        assert summary["checked"] == 0
+
+    def test_skips_non_http_urls(self, conn):
+        self._insert(conn, "https://src.example/1", "javascript:void(0)")
+        self._insert(conn, "https://src.example/2", "/relative/path")
+        summary = verify_apply_urls(conn, client=self._client({}))
+        assert summary["checked"] == 2
+        assert summary["skipped"] == 2
+        assert summary["expired"] == 0

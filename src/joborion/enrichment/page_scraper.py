@@ -668,10 +668,17 @@ def scrape_site_batch(
                     )
                 else:
                     stats["error"] += 1
+                    err = result.get("error", "unknown")
                     conn.execute(
                         "UPDATE jobs SET detail_error = ?, detail_scraped_at = ? WHERE url = ?",
-                        (result.get("error", "unknown"), now, url),
+                        (err, now, url),
                     )
+                    if (isinstance(err, str) and err.startswith("HTTP ")
+                            and int(err.split()[-1]) in PERMANENT_FAILURES):
+                        conn.execute(
+                            "UPDATE jobs SET apply_status = 'expired', apply_error = ? WHERE url = ?",
+                            (f"dead link (HTTP {err.split()[-1]})", url),
+                        )
 
                 conn.commit()
 

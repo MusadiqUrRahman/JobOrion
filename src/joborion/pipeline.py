@@ -217,6 +217,14 @@ def _run_enrichment_stage(workers: int = 1) -> dict:
 def _run_scoring_stage() -> dict:
     """Stage: LLM scoring — assign fit scores 1-10."""
     try:
+        from joborion.database import get_connection
+        from joborion.sourcing.filter import verify_apply_urls
+        try:
+            verified = verify_apply_urls(get_connection())
+            if verified["expired"]:
+                log.info("Marked %d dead apply links expired before scoring", verified["expired"])
+        except Exception as e:  # best-effort pre-check; never block scoring
+            log.warning("Apply-link verification skipped: %s", e)
         from joborion.scoring.fit_scorer import score_jobs
         score_jobs()
         return {"status": "ok"}

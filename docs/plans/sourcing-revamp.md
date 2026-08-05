@@ -401,6 +401,7 @@ Each task = one purpose, one test, exact files. `✓` = check off at completion.
 - Files: `src/joborion/enrichment/page_scraper.py`, `src/joborion/sourcing/filter.py`
 - HEAD/GET check on `apply_url_direct` before scoring/apply; mark expired
 - Test: `test_filter.py::test_marks_expired_urls`
+- [x] Done
 
 **E2. Cost control per source**
 - Files: `src/joborion/sources/registry.py`, `src/joborion/llm.py` (existing)

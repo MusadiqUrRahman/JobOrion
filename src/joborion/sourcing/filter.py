@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 
+import httpx
 from rapidfuzz import fuzz
 
 from joborion.sourcing.learning import feedback_title_terms
@@ -29,6 +31,11 @@ _FUZZY_TITLE_THRESHOLD = 80
 _CITY_THRESHOLD = 88
 _DUP_TITLE_THRESHOLD = 90
 _DUP_COMPANY_THRESHOLD = 80
+
+_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+_DEAD_CODES = {400, 404, 410, 451}  # definitive "this posting is gone"
+_HEAD_UNSUPPORTED = {405, 501, 403}  # server refuses HEAD -> retry with GET
+_DEFAULT_MAX_AGE_DAYS = 7
 
 
 @dataclass
@@ -261,3 +268,87 @@ def apply_relevance_gate(conn, intent: dict, dedup: bool = True) -> dict:
 
     conn.commit()
     return summary
+
+
+def verify_apply_urls(
+    conn,
+    client: httpx.Client | None = None,
+    max_age_days: int = _DEFAULT_MAX_AGE_DAYS,
+    limit: int | None = None,
+) -> dict:
+    """HEAD/GET every actionable ``apply_url_direct``; mark dead links expired.
+
+    Definitive gone codes (400/404/410/451) set ``apply_status='expired'`` so
+    the job leaves the pipeline. Transient (5xx/429) and bot-blocked (401/403)
+    responses are skipped and re-checked on a later run. URLs already applied
+    or expired, and links verified within ``max_age_days``, are not touched.
+
+    Returns:
+        {"checked", "alive", "expired", "skipped", "dead_codes"}
+    """
+    own_client = client is None
+    if own_client:
+        client = httpx.Client(
+            headers={"User-Agent": _UA},
+            timeout=15.0,
+            follow_redirects=True,
+        )
+    try:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=max_age_days)).isoformat()
+        sql = (
+            "SELECT url, apply_url_direct FROM jobs "
+            "WHERE apply_url_direct IS NOT NULL "
+            "AND applied_at IS NULL "
+            "AND COALESCE(apply_status, '') NOT IN ('expired', 'manual', 'in_progress') "
+            "AND (apply_checked_at IS NULL OR apply_checked_at < ?)"
+        )
+        params: list = [cutoff]
+        if limit:
+            sql += " LIMIT ?"
+            params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+
+        summary = {"checked": 0, "alive": 0, "expired": 0, "skipped": 0, "dead_codes": {}}
+        now = datetime.now(timezone.utc).isoformat()
+
+        for row in rows:
+            url = (row["apply_url_direct"] or "").strip()
+            if not url.lower().startswith(("http://", "https://")):
+                summary["checked"] += 1
+                summary["skipped"] += 1
+                continue
+
+            try:
+                resp = client.head(url, follow_redirects=True)
+                code = resp.status_code
+                if code in _HEAD_UNSUPPORTED:
+                    resp = client.get(url, follow_redirects=True)
+                    code = resp.status_code
+            except httpx.HTTPError:
+                summary["checked"] += 1
+                summary["skipped"] += 1
+                continue
+
+            summary["checked"] += 1
+            if code in _DEAD_CODES:
+                conn.execute(
+                    "UPDATE jobs SET apply_status = 'expired', apply_error = ?, "
+                    "apply_checked_at = ? WHERE url = ?",
+                    (f"dead link (HTTP {code})", now, row["url"]),
+                )
+                summary["expired"] += 1
+                summary["dead_codes"][code] = summary["dead_codes"].get(code, 0) + 1
+            elif code < 400:
+                conn.execute(
+                    "UPDATE jobs SET apply_checked_at = ? WHERE url = ?",
+                    (now, row["url"]),
+                )
+                summary["alive"] += 1
+            else:
+                summary["skipped"] += 1
+
+        conn.commit()
+        return summary
+    finally:
+        if own_client:
+            client.close()

@@ -540,6 +540,17 @@ def apply(
 
     effective_limit = limit if limit is not None else (0 if continuous else 1)
 
+    from joborion.sourcing.filter import verify_apply_urls
+
+    try:
+        verified = verify_apply_urls(get_connection())
+        if verified["expired"]:
+            print_warning(
+                f"Culled {verified['expired']} dead apply link(s) before running."
+            )
+    except Exception as e:  # verification is best-effort; never block apply
+        print_warning(f"Apply-link verification skipped: {e}")
+
     print_screen_header("Auto-Apply", "Submit job applications", "🚀")
 
     # Config display
