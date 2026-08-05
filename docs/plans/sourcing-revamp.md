@@ -380,7 +380,7 @@ Each task = one purpose, one test, exact files. `✓` = check off at completion.
 - Drop ATS/Workday companies with 0 passing jobs over 2 runs; surface in report
 - Test: `test_learning.py::test_prunes_zero_yield_companies`
 
-**D4. LLM query evolution**
+**D4. LLM query evolution** ✓
 - Files: `src/joborion/sourcing/query_evolution.py` (NEW), `src/joborion/sourcing/intent.py`
 - After evaluate: LLM generates expanded queries from top-fit job titles + profile; `query_history` table; tier rotation
 - Test: `test_query_evolution.py::test_expands_queries_from_fit` (mock LLM)

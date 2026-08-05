@@ -210,6 +210,20 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
         )
     """)
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS query_history (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            query           TEXT NOT NULL,
+            tier            INTEGER NOT NULL DEFAULT 1,
+            origin          TEXT NOT NULL DEFAULT 'llm',
+            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            used_at         TEXT,
+            last_passed     INTEGER NOT NULL DEFAULT 0,
+            active          INTEGER NOT NULL DEFAULT 1,
+            UNIQUE (query)
+        )
+    """)
+
     # Validation error memory
     conn.execute("""
         CREATE TABLE IF NOT EXISTS validation_errors (

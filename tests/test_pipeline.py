@@ -163,3 +163,29 @@ class TestSearchStage:
         assert metric["found"] == 3
         assert metric["passed"] == 1
         close_connection(str(db_path))
+
+    def test_intent_carries_evolved_queries(self, tmp_path):
+        from joborion.database import close_connection, init_db
+
+        db_path = tmp_path / "q.db"
+        close_connection(str(db_path))
+        conn = init_db(str(db_path))
+        conn.execute("INSERT INTO query_history (query, tier) VALUES ('python backend', 1)")
+        conn.commit()
+        fake = _FakeProvider()
+        with patch("joborion.pipeline.build_providers", return_value=[fake]):
+            with patch("joborion.pipeline.get_blocked_sites_from_memory", return_value=[]):
+                with patch("joborion.pipeline.record_provider_run"):
+                    with patch("joborion.pipeline.record_site_attempt"):
+                        with patch("joborion.pipeline.load_preferences",
+                                   return_value={"arrangement": "all"}):
+                            with patch("joborion.pipeline.map_arrangement",
+                                       return_value={"mode": "all", "locations": ["worldwide"]}):
+                                with patch("joborion.pipeline.load_profile", return_value={}):
+                                    with patch("joborion.pipeline.get_connection", return_value=conn):
+                                        with patch("joborion.pipeline.expand_queries",
+                                                   return_value=[]):
+                                            with patch("joborion.pipeline.mark_queries_used"):
+                                                _run_discovery_stage()
+        assert fake.last_intent["queries"] == [{"query": "python backend", "tier": 1}]
+        close_connection(str(db_path))

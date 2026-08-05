@@ -89,7 +89,12 @@ class AdzunaProvider:
             log.warning("Adzuna skipped: %s or %s not set", app_id_env, app_key_env)
             return ProviderResult(provider=self.name, errors=0, found=0)
 
-        queries = (load_search_config() or {}).get("queries", [])
+        intent = intent or {}
+        evolved = intent.get("queries") or []
+        if evolved:
+            queries = evolved
+        else:
+            queries = (load_search_config() or {}).get("queries", [])
         if not queries:
             return ProviderResult(provider=self.name)
         tier1 = [q["query"] for q in queries if q.get("tier") == 1]
@@ -98,7 +103,6 @@ class AdzunaProvider:
         if not terms:
             return ProviderResult(provider=self.name)
 
-        intent = intent or {}
         locations = intent.get("locations") or ["worldwide"]
         job_types = intent.get("job_types") or []
         min_salary = intent.get("min_salary")

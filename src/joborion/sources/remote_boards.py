@@ -329,7 +329,10 @@ class RemoteBoardsProvider:
     def __init__(self, cfg: dict):
         self.cfg = cfg or {}
 
-    def _search_queries(self) -> list[dict]:
+    def _search_queries(self, intent: dict) -> list[dict]:
+        evolved = (intent or {}).get("queries")
+        if evolved:
+            return [q for q in evolved if q.get("query")]
         cfg = load_search_config()
         return [
             q for q in (cfg.get("queries") or [])
@@ -337,7 +340,7 @@ class RemoteBoardsProvider:
         ]
 
     def search(self, intent: dict) -> ProviderResult:
-        queries = self._search_queries()
+        queries = self._search_queries(intent)
         if not queries:
             return ProviderResult(provider=self.name)
         term = queries[0]["query"]

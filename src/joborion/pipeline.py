@@ -41,6 +41,7 @@ from joborion.sourcing.learning import (
     reconcile_company_yields,
     prune_zero_yield_companies,
 )
+from joborion.sourcing.query_evolution import active_queries, expand_queries, mark_queries_used
 from joborion.wizard.preferences import load_preferences
 
 log = logging.getLogger(__name__)
@@ -118,6 +119,11 @@ def _build_search_intent(mode: str | None) -> dict:
         log.warning("Preferences unavailable (%s); using mode %r", e, mode)
         intent = {"mode": mode, "locations": ["worldwide"], "job_types": ["all"]}
     intent["keywords"] = _profile_keywords()
+    try:
+        intent["queries"] = active_queries(get_connection())
+    except Exception as e:
+        log.warning("Evolved queries unavailable (%s); using configured queries", e)
+        intent["queries"] = []
     return intent
 
 
@@ -185,6 +191,14 @@ def _run_discovery_stage(workers: int = 1, mode: str | None = None) -> dict:
         print_warning(
             f"Zero-yield company prune ({len(pruned)}): {', '.join(sorted(pruned))}"
         )
+
+    try:
+        evolved = expand_queries(conn)
+        if evolved:
+            print_info(f"Query evolution: stored {len(evolved)} new queries")
+        mark_queries_used(conn, intent.get("queries") or [])
+    except Exception as e:
+        log.warning("Query evolution skipped: %s", e)
 
     return stats
 
