@@ -14,6 +14,7 @@ class AiSiteProvider:
     """Smart-extract job boards from sites.yaml via LLM + Playwright."""
 
     name = "ai_sites"
+    uses_llm = True
 
     def __init__(self, cfg: dict):
         self.cfg = cfg or {}

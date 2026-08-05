@@ -407,6 +407,7 @@ Each task = one purpose, one test, exact files. `✓` = check off at completion.
 - Files: `src/joborion/sources/registry.py`, `src/joborion/llm.py` (existing)
 - Pre-flight cost estimate per provider; per-run caps; LLM used only by AI-scraper + query evolution (not filtering)
 - Test: `test_registry.py::test_respects_result_caps`
+- [x] Done
 
 **E3. Proxy support for blocked boards**
 - Files: `src/joborion/config/sources.yaml`, `src/joborion/sources/jobspy_provider.py`

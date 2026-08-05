@@ -92,6 +92,7 @@ class ProviderResult:
     error: str | None = None
     latency_ms: int = 0
     companies: list[str] | None = None
+    trimmed: int = 0  # jobs deleted because they exceeded the result cap
 
     def ok(self) -> bool:
         return self.errors == 0

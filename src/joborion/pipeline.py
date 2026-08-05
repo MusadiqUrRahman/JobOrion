@@ -147,7 +147,17 @@ def _run_discovery_stage(workers: int = 1, mode: str | None = None) -> dict:
         return {}
 
     intent = _build_search_intent(mode)
-    results = run_providers(intent, providers=providers)
+    from joborion.sources.registry import compute_result_caps, preflight_estimate
+    caps = compute_result_caps(providers, intent)
+    preflight = preflight_estimate(providers, intent, caps)
+    if preflight["estimated_total_jobs"]:
+        log.info(
+            "Pre-flight: est %d jobs, $%.4f USD across %d provider(s)",
+            preflight["estimated_total_jobs"],
+            preflight["estimated_cost_usd"],
+            len(preflight["per_provider"]),
+        )
+    results = run_providers(intent, providers=providers, conn=get_connection(), caps=caps)
 
     stats: dict = {}
     for result in results:

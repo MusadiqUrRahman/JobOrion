@@ -5,7 +5,11 @@
 # (lowest first). Keep the most reliable/cheapest providers at the top so they
 # fill the pool before slower ones add variety.
 #
-# Per-provider options are provider-specific and documented below each entry.
+# Per-provider options:
+#   - max_results: per-run result cap (0 = unlimited). Excess jobs are trimmed
+#     after each run so a single source cannot flood the pool. This is also the
+#     main cost lever for LLM-heavy sources like ai_sites.
+#   - Provider-specific options are documented below each entry.
 
 providers:
   # JobSpy scrape: Indeed, LinkedIn, ZipRecruiter, Glassdoor, Bayt, Google
@@ -52,7 +56,8 @@ providers:
     platforms: [greenhouse, lever, ashby, smartrecruiters]
 
   # AI-site aggregation boards (jobs listed across many ATS portals).
-  # Reliability: low. Cost: free.
+  # Reliability: low. Cost: LLM-heavy (est. ~$0.0006/job).
   ai_sites:
     enabled: true
     priority: 60
+    max_results: 25

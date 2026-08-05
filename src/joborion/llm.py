@@ -20,6 +20,17 @@ import httpx
 
 log = logging.getLogger(__name__)
 
+# Per-token USD rates, shared by runtime cost recording and pre-flight
+# estimation so both stay in lockstep.
+INPUT_TOKEN_RATE_USD = 0.00000015
+OUTPUT_TOKEN_RATE_USD = 0.00000060
+
+
+def estimate_call_cost(tokens_in: int = 0, tokens_out: int = 0) -> float:
+    """Pre-flight USD estimate for one LLM call (same rates as recording)."""
+    return tokens_in * INPUT_TOKEN_RATE_USD + tokens_out * OUTPUT_TOKEN_RATE_USD
+
+
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
@@ -476,9 +487,7 @@ class LLMClient:
         tokens_out: int = 0,
     ) -> None:
         """Record cost for this call."""
-        input_cost = tokens_in * 0.00000015
-        output_cost = tokens_out * 0.00000060
-        call_cost = input_cost + output_cost
+        call_cost = estimate_call_cost(tokens_in, tokens_out)
         self._cost_usd += call_cost
 
         if self._current_run_id:
