@@ -29,6 +29,8 @@ dependencies = [
     "python-jobspy @ git+https://github.com/speedyapply/JobSpy.git",
     "google-genai>=1.0.0",
     "anthropic>=0.49.0",
+    "pycountry>=23.12.11",
+    "rapidfuzz>=3.0",
 ]
 
 [project.optional-dependencies]

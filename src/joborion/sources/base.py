@@ -134,12 +134,13 @@ def store_raw_jobs(conn: sqlite3.Connection, jobs: list[RawJob]) -> tuple[int, i
 
         try:
             conn.execute(
-                "INSERT INTO jobs (url, title, salary, description, location, site, strategy, discovered_at, "
+                "INSERT INTO jobs (url, title, company, salary, description, location, site, strategy, discovered_at, "
                 "full_description, application_url, detail_scraped_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     url,
                     job.title or None,
+                    job.company or None,
                     job.salary_text(),
                     description,
                     job.location or None,

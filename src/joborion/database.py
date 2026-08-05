@@ -96,12 +96,27 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
             -- Discovery stage (smart_extract / job_search)
             url                   TEXT PRIMARY KEY,
             title                 TEXT,
+            company               TEXT,
             salary                TEXT,
             description           TEXT,
             location              TEXT,
             site                  TEXT,
             strategy              TEXT,
             discovered_at         TEXT,
+
+            -- Relevance stage (sourcing.normalize + sourcing.filter)
+            is_remote             INTEGER,
+            country               TEXT,
+            city                  TEXT,
+            job_type              TEXT,
+            seniority             TEXT,
+            salary_min            REAL,
+            salary_max            REAL,
+            salary_currency       TEXT,
+            salary_interval       TEXT,
+            source_provider       TEXT,
+            apply_url_direct      TEXT,
+            posted_at             TEXT,
 
             -- Enrichment stage (detail_scraper)
             full_description      TEXT,
@@ -258,6 +273,13 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
     # Run migrations for any columns added after initial schema
     ensure_columns(conn)
 
+    # Relevance-stage query support (recent unfiltered jobs, per-provider stats)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_jobs_provider_remote_fit "
+        "ON jobs(source_provider, is_remote, fit_score)"
+    )
+    conn.commit()
+
     return conn
 
 
@@ -268,12 +290,26 @@ _ALL_COLUMNS: dict[str, str] = {
     # Discovery
     "url": "TEXT PRIMARY KEY",
     "title": "TEXT",
+    "company": "TEXT",
     "salary": "TEXT",
     "description": "TEXT",
     "location": "TEXT",
     "site": "TEXT",
     "strategy": "TEXT",
     "discovered_at": "TEXT",
+    # Relevance
+    "is_remote": "INTEGER",
+    "country": "TEXT",
+    "city": "TEXT",
+    "job_type": "TEXT",
+    "seniority": "TEXT",
+    "salary_min": "REAL",
+    "salary_max": "REAL",
+    "salary_currency": "TEXT",
+    "salary_interval": "TEXT",
+    "source_provider": "TEXT",
+    "apply_url_direct": "TEXT",
+    "posted_at": "TEXT",
     # Enrichment
     "full_description": "TEXT",
     "application_url": "TEXT",

@@ -19,7 +19,7 @@ from datetime import datetime
 
 from rich.console import Console
 
-from joborion.config import load_env, ensure_dirs
+from joborion.config import load_env, ensure_dirs, load_profile
 from joborion.ui import (
     print_tool_line, print_screen_header, print_success,
     print_error, print_warning, print_info,
@@ -33,6 +33,7 @@ from joborion.database import (
 )
 from joborion.llm import get_client
 from joborion.sources.registry import build_providers, run_providers
+from joborion.sourcing.filter import apply_relevance_gate
 from joborion.sourcing.intent import map_arrangement
 from joborion.wizard.preferences import load_preferences
 
@@ -78,13 +79,40 @@ UPSTREAM_DEPS: dict[str, str | None] = {
 # Individual stage runners
 # ---------------------------------------------------------------------------
 
+def _profile_keywords() -> list[str]:
+    """Target-role + skill terms from the user profile, used by the title gate."""
+    try:
+        profile = load_profile()
+    except Exception:
+        return []
+
+    keywords: list[str] = []
+    experience = profile.get("experience") or {}
+    target_role = (experience.get("target_role") or "").strip()
+    if target_role:
+        keywords.append(target_role)
+    skills = profile.get("skills_boundary") or {}
+    for group in ("programming_languages", "frameworks", "tools"):
+        keywords.extend(
+            entry.strip() for entry in (skills.get(group) or []) if entry and entry.strip()
+        )
+
+    seen: list[str] = []
+    for keyword in keywords:
+        if keyword not in seen:
+            seen.append(keyword)
+    return seen
+
+
 def _build_search_intent(mode: str | None) -> dict:
     """Build a search intent from preferences, falling back to a bare mode."""
     try:
-        return map_arrangement(load_preferences())
+        intent = map_arrangement(load_preferences())
     except Exception as e:
         log.warning("Preferences unavailable (%s); using mode %r", e, mode)
-        return {"mode": mode, "locations": ["worldwide"], "job_types": ["all"]}
+        intent = {"mode": mode, "locations": ["worldwide"], "job_types": ["all"]}
+    intent["keywords"] = _profile_keywords()
+    return intent
 
 
 def _run_discovery_stage(workers: int = 1, mode: str | None = None) -> dict:
@@ -118,6 +146,15 @@ def _run_discovery_stage(workers: int = 1, mode: str | None = None) -> dict:
             print_success(f"{result.provider}: {result.found} found, {result.stored} new")
         else:
             print_error(f"{result.provider}: {result.error or 'failed'}")
+
+    gate = apply_relevance_gate(get_connection(), intent)
+    if gate["processed"]:
+        print_success(
+            f"Relevance gate: {gate['passed']} kept, {gate['dropped']} dropped "
+            f"({gate['processed']} processed)"
+        )
+        for reason, count in sorted(gate["reasons"].items()):
+            print_info(f"  dropped: {reason} x{count}")
 
     return stats
 

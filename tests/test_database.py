@@ -1,9 +1,5 @@
 """Tests for joborion.database — schema, CRUD, stats, migrations."""
 
-import os
-import sqlite3
-import tempfile
-from pathlib import Path
 
 import pytest
 from joborion.database import (
@@ -107,6 +103,34 @@ class TestEnsureColumns:
     def test_returns_empty_when_current(self, conn):
         added = ensure_columns(conn)
         assert added == []
+
+
+# ── relevance stage columns (Phase C) ───────────────────────────────────
+
+
+class TestStructuredColumns:
+    def test_jobs_have_structured_columns(self, conn):
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+        for col in (
+            "is_remote", "country", "city", "job_type", "seniority",
+            "salary_min", "salary_max", "salary_currency", "salary_interval",
+            "source_provider", "apply_url_direct", "posted_at",
+        ):
+            assert col in cols, f"missing column: {col}"
+
+    def test_migration_adds_structured_columns(self, tmp_db):
+        c = get_connection(str(tmp_db))
+        c.execute("CREATE TABLE IF NOT EXISTS jobs (url TEXT PRIMARY KEY, title TEXT)")
+        c.commit()
+        added = ensure_columns(c)
+        assert "is_remote" in added
+        assert "source_provider" in added
+
+    def test_relevance_index_exists(self, conn):
+        indexes = {
+            row[1] for row in conn.execute("PRAGMA index_list(jobs)").fetchall()
+        }
+        assert "idx_jobs_provider_remote_fit" in indexes
 
 
 # ── store_jobs ─────────────────────────────────────────────────────────

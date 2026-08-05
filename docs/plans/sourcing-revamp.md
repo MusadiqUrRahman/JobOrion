@@ -325,22 +325,31 @@ Each task = one purpose, one test, exact files. `✓` = check off at completion.
 
 ### Phase C — Relevance Engine
 
-**C1. Structured job normalization**
+> Discoveries (2026-08-05): the gate runs *after* provider insert (providers store
+> via `store_raw_jobs`), then fills structured columns on PASS and deletes DROPped
+> jobs, so enrichment/scoring never touch irrelevant rows. Added `company` column
+> (was never persisted) + `company` on insert in `base.py` — dedup needs it. Title
+> gate keywords come from profile `experience.target_role` + `skills_boundary`
+> (roles fuzzy-match ≥80, skill tokens must appear in title). Salary gate compares
+> annualized USD only when the scale is confident (explicit interval or ≥20k).
+> Filtering is entirely LLM-free (pycountry + rapidfuzz, both new deps).
+
+**C1. Structured job normalization** ✓
 - Files: `src/joborion/sourcing/normalize.py` (NEW)
 - Extract country/city (pycountry + fuzzy), is_remote, job_type, seniority, salary (regex) — **no LLM**
 - Test: `test_normalize.py::test_extracts_salary_and_country`
 
-**C2. Relevance gate**
+**C2. Relevance gate** ✓
 - Files: `src/joborion/sourcing/filter.py` (NEW)
 - Arrangement (remote/hybrid/onsite), location (remote→worldwide or preferred list), job_type, min_salary, seniority, title relevance (rapidfuzz vs target terms) → PASS/DROP with reason
 - Test: `test_filter.py::test_drops_bangkok_remote_for_restricted_locations` etc.
 
-**C3. Store structured fields in DB**
+**C3. Store structured fields in DB** ✓
 - Files: `src/joborion/database.py` (add `ensure_columns`), `src/joborion/sourcing/filter.py`
 - Write `is_remote/country/job_type/seniority/salary_*` on insert
 - Test: `test_database.py::test_jobs_have_structured_columns`
 
-**C4. Dedup by normalized title+company**
+**C4. Dedup by normalized title+company** ✓
 - Files: `src/joborion/sourcing/filter.py`
 - rapidfuzz matching against recent jobs (avoid cross-provider duplicates, e.g. same job on Indeed + Greenhouse)
 - Test: `test_filter.py::test_dedupes_across_providers`
