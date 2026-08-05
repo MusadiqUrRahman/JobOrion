@@ -1,0 +1,378 @@
+# Curated ATS board registry for the ats_boards provider.
+# Only companies whose public board slug was verified against the live API are
+# listed. Users can add their own companies by copying this pattern.
+#
+# platform: one of greenhouse | lever | ashby | smartrecruiters
+# slug:     board slug used in the platform's public jobs API
+# region:   "global" or a country; used for location filtering
+# tags:     remote-friendly / sponsorship / hybrid where known
+
+companies:
+
+  # ── Greenhouse ──────────────────────────────────────────────────────────
+
+  gitlab:
+    platform: greenhouse
+    slug: gitlab
+    name: GitLab
+    industries: [developer-tools, devops]
+    region: global
+    tags: [remote-friendly]
+
+  instacart:
+    platform: greenhouse
+    slug: instacart
+    name: Instacart
+    industries: [e-commerce, grocery]
+    region: usa
+    tags: []
+
+  dropbox:
+    platform: greenhouse
+    slug: dropbox
+    name: Dropbox
+    industries: [cloud-storage, collaboration]
+    region: global
+    tags: [remote-friendly]
+
+  datadog:
+    platform: greenhouse
+    slug: datadog
+    name: Datadog
+    industries: [observability, developer-tools]
+    region: global
+    tags: [remote-friendly]
+
+  pinterest:
+    platform: greenhouse
+    slug: pinterest
+    name: Pinterest
+    industries: [social-media, e-commerce]
+    region: usa
+    tags: []
+
+  airtable:
+    platform: greenhouse
+    slug: airtable
+    name: Airtable
+    industries: [productivity, saas]
+    region: usa
+    tags: [remote-friendly]
+
+  coinbase:
+    platform: greenhouse
+    slug: coinbase
+    name: Coinbase
+    industries: [cryptocurrency, fintech]
+    region: global
+    tags: [remote-friendly]
+
+  reddit:
+    platform: greenhouse
+    slug: reddit
+    name: Reddit
+    industries: [social-media, internet]
+    region: usa
+    tags: [remote-friendly]
+
+  twitch:
+    platform: greenhouse
+    slug: twitch
+    name: Twitch
+    industries: [streaming, gaming]
+    region: usa
+    tags: []
+
+  anthropic:
+    platform: greenhouse
+    slug: anthropic
+    name: Anthropic
+    industries: [artificial-intelligence, research]
+    region: usa
+    tags: [hybrid]
+
+  duolingo:
+    platform: greenhouse
+    slug: duolingo
+    name: Duolingo
+    industries: [education, edtech]
+    region: usa
+    tags: []
+
+  asana:
+    platform: greenhouse
+    slug: asana
+    name: Asana
+    industries: [productivity, saas]
+    region: global
+    tags: [remote-friendly]
+
+  figma:
+    platform: greenhouse
+    slug: figma
+    name: Figma
+    industries: [design, developer-tools]
+    region: usa
+    tags: [hybrid]
+
+  elastic:
+    platform: greenhouse
+    slug: elastic
+    name: Elastic
+    industries: [search, observability]
+    region: global
+    tags: [remote-friendly]
+
+  mongodb:
+    platform: greenhouse
+    slug: mongodb
+    name: MongoDB
+    industries: [database, developer-tools]
+    region: global
+    tags: [remote-friendly]
+
+  robinhood:
+    platform: greenhouse
+    slug: robinhood
+    name: Robinhood
+    industries: [fintech, investing]
+    region: usa
+    tags: []
+
+  stripe:
+    platform: greenhouse
+    slug: stripe
+    name: Stripe
+    industries: [fintech, payments]
+    region: global
+    tags: [remote-friendly, hybrid]
+
+  airbnb:
+    platform: greenhouse
+    slug: airbnb
+    name: Airbnb
+    industries: [travel, marketplace]
+    region: global
+    tags: [hybrid]
+
+  cerebral:
+    platform: greenhouse
+    slug: cerebral
+    name: Cerebral
+    industries: [healthcare, telehealth]
+    region: usa
+    tags: [hybrid]
+
+  # ── Lever ───────────────────────────────────────────────────────────────
+
+  spotify:
+    platform: lever
+    slug: spotify
+    name: Spotify
+    industries: [music, entertainment]
+    region: global
+    tags: [hybrid]
+
+  wealthsimple:
+    platform: lever
+    slug: wealthsimple
+    name: Wealthsimple
+    industries: [fintech, investing]
+    region: canada
+    tags: [hybrid]
+
+  kraken:
+    platform: lever
+    slug: kraken
+    name: Kraken
+    industries: [cryptocurrency, fintech]
+    region: global
+    tags: [remote-friendly]
+
+  # ── Ashby ───────────────────────────────────────────────────────────────
+
+  notion:
+    platform: ashby
+    slug: notion
+    name: Notion
+    industries: [productivity, saas]
+    region: global
+    tags: [remote-friendly]
+
+  ramp:
+    platform: ashby
+    slug: ramp
+    name: Ramp
+    industries: [fintech, payments]
+    region: usa
+    tags: [remote-friendly]
+
+  linear:
+    platform: ashby
+    slug: linear
+    name: Linear
+    industries: [developer-tools, project-management]
+    region: global
+    tags: [remote-friendly]
+
+  mux:
+    platform: ashby
+    slug: mux
+    name: Mux
+    industries: [video, developer-tools]
+    region: usa
+    tags: [remote-friendly]
+
+  vanta:
+    platform: ashby
+    slug: vanta
+    name: Vanta
+    industries: [security, compliance]
+    region: usa
+    tags: [remote-friendly]
+
+  supabase:
+    platform: ashby
+    slug: supabase
+    name: Supabase
+    industries: [database, developer-tools]
+    region: global
+    tags: [remote-friendly]
+
+  opensea:
+    platform: ashby
+    slug: opensea
+    name: OpenSea
+    industries: [nft, marketplace]
+    region: usa
+    tags: [remote-friendly]
+
+  resend:
+    platform: ashby
+    slug: resend
+    name: Resend
+    industries: [email, developer-tools]
+    region: global
+    tags: [remote-friendly]
+
+  openai:
+    platform: ashby
+    slug: openai
+    name: OpenAI
+    industries: [artificial-intelligence, research]
+    region: usa
+    tags: [hybrid]
+
+  plaid:
+    platform: ashby
+    slug: plaid
+    name: Plaid
+    industries: [fintech, api]
+    region: usa
+    tags: [hybrid]
+
+  replit:
+    platform: ashby
+    slug: replit
+    name: Replit
+    industries: [developer-tools, cloud-ide]
+    region: global
+    tags: [remote-friendly]
+
+  posthog:
+    platform: ashby
+    slug: posthog
+    name: PostHog
+    industries: [analytics, developer-tools]
+    region: global
+    tags: [remote-friendly]
+
+  deel:
+    platform: ashby
+    slug: deel
+    name: Deel
+    industries: [hr, payroll]
+    region: global
+    tags: [remote-friendly, sponsorship]
+
+  # ── SmartRecruiters ─────────────────────────────────────────────────────
+
+  uber:
+    platform: smartrecruiters
+    slug: uber
+    name: Uber
+    industries: [ride-hailing, transportation]
+    region: global
+    tags: [hybrid]
+
+  cisco:
+    platform: smartrecruiters
+    slug: cisco
+    name: Cisco
+    industries: [networking, enterprise]
+    region: global
+    tags: [hybrid]
+
+  visa:
+    platform: smartrecruiters
+    slug: visa
+    name: Visa
+    industries: [fintech, payments]
+    region: global
+    tags: [hybrid]
+
+  workato:
+    platform: smartrecruiters
+    slug: workato
+    name: Workato
+    industries: [automation, integration]
+    region: global
+    tags: [hybrid]
+
+  atlassian:
+    platform: smartrecruiters
+    slug: atlassian
+    name: Atlassian
+    industries: [developer-tools, project-management]
+    region: global
+    tags: [hybrid]
+
+  dell:
+    platform: smartrecruiters
+    slug: dell
+    name: Dell Technologies
+    industries: [hardware, enterprise]
+    region: global
+    tags: [hybrid]
+
+  autodesk:
+    platform: smartrecruiters
+    slug: autodesk
+    name: Autodesk
+    industries: [design, architecture]
+    region: global
+    tags: [hybrid]
+
+  ibm:
+    platform: smartrecruiters
+    slug: ibm
+    name: IBM
+    industries: [enterprise, cloud]
+    region: global
+    tags: [hybrid]
+
+  honeywell:
+    platform: smartrecruiters
+    slug: honeywell
+    name: Honeywell
+    industries: [aerospace, industrial]
+    region: global
+    tags: [hybrid]
+
+  target:
+    platform: smartrecruiters
+    slug: target
+    name: Target
+    industries: [retail, e-commerce]
+    region: usa
+    tags: [hybrid]

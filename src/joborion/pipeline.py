@@ -28,10 +28,13 @@ from joborion.ui import (
 )
 from joborion.database import (
     init_db, get_connection, get_stats, record_source_run,
-    get_reliable_sites, get_blocked_sites_from_memory, record_site_attempt,
+    get_blocked_sites_from_memory, record_site_attempt,
     start_run, finish_run,
 )
 from joborion.llm import get_client
+from joborion.sources.registry import build_providers, run_providers
+from joborion.sourcing.intent import map_arrangement
+from joborion.wizard.preferences import load_preferences
 
 log = logging.getLogger(__name__)
 console = Console()
@@ -51,7 +54,7 @@ def _safe_cost() -> float:
 STAGE_ORDER = ("search", "details", "evaluate", "tailor", "letter", "export")
 
 STAGE_META: dict[str, dict] = {
-    "search":   {"desc": "Job search (JobSpy + Workday + smart extract)"},
+    "search":   {"desc": "Job search (providers: JobSpy, Workday, Adzuna, remote + ATS boards)"},
     "details":  {"desc": "Detail enrichment (full descriptions + apply URLs)"},
     "evaluate": {"desc": "LLM scoring (fit 1-10)"},
     "tailor":   {"desc": "Resume tailoring (LLM + validation)"},
@@ -75,88 +78,46 @@ UPSTREAM_DEPS: dict[str, str | None] = {
 # Individual stage runners
 # ---------------------------------------------------------------------------
 
+def _build_search_intent(mode: str | None) -> dict:
+    """Build a search intent from preferences, falling back to a bare mode."""
+    try:
+        return map_arrangement(load_preferences())
+    except Exception as e:
+        log.warning("Preferences unavailable (%s); using mode %r", e, mode)
+        return {"mode": mode, "locations": ["worldwide"], "job_types": ["all"]}
+
+
 def _run_discovery_stage(workers: int = 1, mode: str | None = None) -> dict:
-    """Stage: Job discovery — JobSpy, Workday, and smart-extract scrapers.
+    """Stage: Job discovery via the source provider registry.
 
-    Uses smart source routing: checks site_memory to skip blocked sources,
-    prioritize reliable sources, and record attempt results.
+    Providers run in reliability order from config/sources.yaml (JobSpy,
+    Workday, Adzuna, remote boards, ATS boards, AI sites). Blocked providers
+    are skipped from memory, and every run is recorded for routing.
     """
-    stats: dict = {"jobspy": None, "workday": None, "smartextract": None}
-
-    # Get blocked sites from memory — skip these entirely
     blocked = get_blocked_sites_from_memory()
     if blocked:
-        print_warning(f"Skipping blocked sites: {', '.join(blocked)}")
+        print_warning(f"Skipping blocked providers: {', '.join(blocked)}")
 
-    # Get reliable sites for prioritization
-    reliable = get_reliable_sites()
-    default_order = ["jobspy", "workday", "smartextract"]
+    providers = [p for p in build_providers() if getattr(p, "name", "") not in blocked]
+    if not providers:
+        print_warning("No providers enabled in sources.yaml")
+        return {}
 
-    if reliable:
-        source_order = reliable + [s for s in default_order if s not in reliable]
-    else:
-        source_order = list(default_order)
+    intent = _build_search_intent(mode)
+    results = run_providers(intent, providers=providers)
 
-    source_order = [s for s in source_order if s not in blocked]
-
-    # Run sources in order
-    for source in source_order:
-        if source == "jobspy":
-            print_tool_line("JobSpy full crawl...")
-            try:
-                from joborion.discovery.jobspy import scrape_jobspy
-                import time
-                t0 = time.time()
-                scrape_jobspy(mode=mode)
-                elapsed_ms = int((time.time() - t0) * 1000)
-                stats["jobspy"] = "ok"
-                record_source_run("jobspy", success=True, jobs_found=0)
-                record_site_attempt("jobspy", success=True, duration_ms=elapsed_ms)
-                print_success("JobSpy completed")
-            except Exception as e:
-                log.error("JobSpy crawl failed: %s", e)
-                print_error(f"JobSpy error: {e}")
-                stats["jobspy"] = f"error: {e}"
-                record_source_run("jobspy", success=False, error=str(e))
-                record_site_attempt("jobspy", success=False)
-
-        elif source == "workday":
-            print_tool_line("Workday corporate scraper...")
-            try:
-                from joborion.discovery.workday import scrape_workday
-                import time
-                t0 = time.time()
-                scrape_workday(workers=workers)
-                elapsed_ms = int((time.time() - t0) * 1000)
-                stats["workday"] = "ok"
-                record_source_run("workday", success=True, jobs_found=0)
-                record_site_attempt("workday", success=True, duration_ms=elapsed_ms)
-                print_success("Workday completed")
-            except Exception as e:
-                log.error("Workday scraper failed: %s", e)
-                print_error(f"Workday error: {e}")
-                stats["workday"] = f"error: {e}"
-                record_source_run("workday", success=False, error=str(e))
-                record_site_attempt("workday", success=False)
-
-        elif source == "smartextract":
-            print_tool_line("AI-powered scraping...")
-            try:
-                from joborion.discovery.ai_scraper import scrape_ai_sites
-                import time
-                t0 = time.time()
-                scrape_ai_sites(workers=workers)
-                elapsed_ms = int((time.time() - t0) * 1000)
-                stats["smartextract"] = "ok"
-                record_source_run("smartextract", success=True, jobs_found=0)
-                record_site_attempt("smartextract", success=True, duration_ms=elapsed_ms)
-                print_success("Smart extract completed")
-            except Exception as e:
-                log.error("Smart extract failed: %s", e)
-                print_error(f"Smart extract error: {e}")
-                stats["smartextract"] = f"error: {e}"
-                record_source_run("smartextract", success=False, error=str(e))
-                record_site_attempt("smartextract", success=False)
+    stats: dict = {}
+    for result in results:
+        stats[result.provider] = "ok" if result.ok() else f"error: {result.error}"
+        record_source_run(
+            result.provider, success=result.ok(),
+            jobs_found=result.found, error=result.error,
+        )
+        record_site_attempt(result.provider, success=result.ok(), duration_ms=result.latency_ms)
+        if result.ok():
+            print_success(f"{result.provider}: {result.found} found, {result.stored} new")
+        else:
+            print_error(f"{result.provider}: {result.error or 'failed'}")
 
     return stats
 
