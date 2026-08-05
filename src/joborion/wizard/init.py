@@ -30,6 +30,22 @@ from joborion.config import (
 console = Console()
 
 
+def _prompt_target_role(profile: dict, current_title: str = "") -> str:
+    """Ask for the target role, never allowing a blank answer.
+
+    Search (and profile-derived queries) require a target role, so the wizard
+    reprompts until a non-blank value is provided.
+    """
+    while True:
+        target_role = Prompt.ask(
+            "Target role (what you're applying for, e.g. 'Senior Backend Engineer')",
+            default=current_title,
+        ).strip()
+        if target_role:
+            return target_role
+        console.print("[red]Target role is required — JobOrion searches use it.[/red]")
+
+
 # ---------------------------------------------------------------------------
 # Resume
 # ---------------------------------------------------------------------------
@@ -137,7 +153,7 @@ def _setup_profile() -> dict:
     # -- Experience --
     console.print("\n[bold cyan]Experience[/bold cyan]")
     current_title = Prompt.ask("Current/most recent job title", default="")
-    target_role = Prompt.ask("Target role (what you're applying for, e.g. 'Senior Backend Engineer')", default=current_title)
+    target_role = _prompt_target_role(profile, current_title)
     profile["experience"] = {
         "years_of_experience_total": Prompt.ask("Years of professional experience", default=""),
         "education_level": Prompt.ask("Highest education (e.g. Bachelor's, Master's, PhD, Self-taught)", default=""),

@@ -99,6 +99,42 @@ def init() -> None:
 
 
 @app.command()
+def configure() -> None:
+    """Set job-search preferences (work arrangement, locations, job types)."""
+    _bootstrap()
+
+    from joborion import config
+    from joborion.wizard.preferences import (
+        load_preferences, run_preferences_wizard, save_preferences,
+    )
+
+    print_screen_header("Search Preferences", "4-question setup", "⚙️")
+
+    existing = load_preferences()
+    prefs = run_preferences_wizard(existing)
+    save_preferences(prefs)
+    print_success(f"Saved preferences to {config.PREFERENCES_PATH}")
+
+    # Target role is required for search — prompt for it if the profile lacks one
+    if not config.PROFILE_PATH.exists():
+        print_warning("No profile found — run [bold]joborion init[/bold] to create one.")
+        return
+    import json
+    from joborion.wizard.init import _prompt_target_role
+
+    profile = config.load_profile()
+    experience = profile.get("experience") or {}
+    current_title = experience.get("current_title") or ""
+    if not (experience.get("target_role") or "").strip():
+        experience["target_role"] = _prompt_target_role(profile, current_title)
+        profile["experience"] = experience
+        config.PROFILE_PATH.write_text(
+            json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8",
+        )
+        print_success("Target role saved to profile")
+
+
+@app.command()
 def plan(
     goal: str = typer.Argument(..., help="Your goal in plain language"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show plan without executing."),
@@ -202,6 +238,61 @@ def reflect(
             print_spacer()
 
 
+def _resolve_search_preferences(
+    *,
+    ask: bool = False,
+    no_ask: bool = False,
+    arrangement: Optional[str] = None,
+    locations: Optional[str] = None,
+    job_type: Optional[str] = None,
+    min_salary: Optional[int] = None,
+) -> str:
+    """Ensure search preferences exist and return the resolved search mode.
+
+    Prompts the 4-question wizard (pre-filled) unless --no-ask or flags are
+    given. Enforces that a target role is set before searching.
+    """
+    from joborion import config
+    from joborion.wizard.preferences import (
+        apply_flags, load_preferences, run_preferences_wizard, save_preferences, validate,
+    )
+    from joborion.sourcing.intent import map_arrangement
+
+    has_flags = any(v is not None for v in (arrangement, locations, job_type, min_salary))
+
+    if ask or (not no_ask and not has_flags):
+        prefs = run_preferences_wizard(load_preferences())
+        prefs = apply_flags(prefs, arrangement, locations, job_type, min_salary)
+        save_preferences(prefs)
+    elif has_flags:
+        prefs = apply_flags(load_preferences(), arrangement, locations, job_type, min_salary)
+        save_preferences(prefs)
+    else:
+        prefs = load_preferences()
+
+    problems = validate(prefs)
+    if problems:
+        print_error("Invalid search preferences: " + "; ".join(problems))
+        raise typer.Exit(code=1)
+
+    try:
+        profile = config.load_profile()
+    except FileNotFoundError:
+        profile = {}
+    target_role = ((profile.get("experience") or {}).get("target_role") or "").strip()
+    if not target_role:
+        print_error("No target role set")
+        console.print(make_gradient_panel(
+            "[dim]Run [bold bright_cyan]joborion configure[/bold bright_cyan] to set a target "
+            "role, or [bold bright_cyan]joborion init[/bold bright_cyan] to build your profile.[/dim]",
+            border_style="bright_red",
+            padding=(1, 2),
+        ))
+        raise typer.Exit(code=1)
+
+    return map_arrangement(prefs)["mode"]
+
+
 @app.command()
 def run(
     stages: Optional[list[str]] = typer.Argument(
@@ -220,6 +311,20 @@ def run(
     mode: Optional[str] = typer.Option(
         None, "--mode",
         help="Search mode: remote, local, sponsorship, all.",
+    ),
+    ask: bool = typer.Option(False, "--ask", help="Force the preference questionnaire."),
+    no_ask: bool = typer.Option(False, "--no-ask", help="Skip the preference questionnaire."),
+    arrangement: Optional[str] = typer.Option(
+        None, "--arrangement", help="Work arrangement: remote, hybrid, onsite, all.",
+    ),
+    locations: Optional[str] = typer.Option(
+        None, "--locations", help="Comma-separated preferred locations.",
+    ),
+    job_type: Optional[str] = typer.Option(
+        None, "--job-type", help="Job type: fulltime, parttime, contract, internship, all.",
+    ),
+    min_salary: Optional[int] = typer.Option(
+        None, "--min-salary", help="Minimum annual salary in USD.",
     ),
 ) -> None:
     """Run pipeline stages: search, details, evaluate, tailor, letter, export."""
@@ -307,6 +412,15 @@ def run(
         ))
         raise typer.Exit(code=1)
 
+    # Preference-driven search: ensure preferences + target role before searching
+    resolved_mode = mode
+    if not goal and ("all" in stage_list or "search" in stage_list):
+        resolved_mode = _resolve_search_preferences(
+            ask=ask, no_ask=no_ask,
+            arrangement=arrangement, locations=locations,
+            job_type=job_type, min_salary=min_salary,
+        )
+
     # Stage pipeline view
     print_screen_header("Pipeline Runner", "Stage execution", "⚡")
 
@@ -326,7 +440,7 @@ def run(
         stream=stream,
         workers=workers,
         validation_mode=validation,
-        mode=mode,
+        mode=resolved_mode,
     )
 
     if result.get("errors"):

@@ -15,6 +15,7 @@ from joborion.config import (
     COVER_LETTER_DIR,
     LOG_DIR,
     CONFIG_DIR,
+    PREFERENCES_PATH,
     DEFAULTS,
     TIER_LABELS,
     TIER_COMMANDS,
@@ -50,6 +51,9 @@ class TestPathConstants:
 
     def test_log_dir_is_path(self):
         assert isinstance(LOG_DIR, Path)
+
+    def test_preferences_path_ends_with_yaml(self):
+        assert str(PREFERENCES_PATH).endswith("preferences.yaml")
 
     def test_config_dir_points_to_package(self):
         assert CONFIG_DIR.exists()
