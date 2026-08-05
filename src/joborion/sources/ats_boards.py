@@ -16,6 +16,7 @@ import yaml
 from joborion import config
 from joborion.database import get_connection
 from joborion.sources.base import ProviderResult, RawJob, store_raw_jobs
+from joborion.sourcing.learning import note_company_run, pruned_companies
 from joborion.wizard.preferences import load_preferences
 
 log = logging.getLogger(__name__)
@@ -233,7 +234,7 @@ class AtsBoardsProvider:
     def __init__(self, cfg: dict):
         self.cfg = cfg or {}
 
-    def _select_companies(self, intent: dict) -> list[dict]:
+    def _select_companies(self, intent: dict, pruned: set[str] | None = None) -> list[dict]:
         companies = load_companies()
         prefs = load_preferences()
         industries = [ind.lower() for ind in (prefs.get("industries") or [])]
@@ -241,10 +242,13 @@ class AtsBoardsProvider:
         locations = [loc.lower() for loc in (intent.get("locations") or [])]
         filter_locations = bool(locations and "worldwide" not in locations)
         max_companies = _int_cfg(self.cfg, "max_companies", 15)
+        pruned = pruned or set()
 
         selected: list[dict] = []
         for company in companies.values():
             if not isinstance(company, dict):
+                continue
+            if (company.get("name") or company.get("slug")) in pruned:
                 continue
             if industries:
                 company_industries = {str(i).lower() for i in company.get("industries", [])}
@@ -267,18 +271,23 @@ class AtsBoardsProvider:
         max_results = _int_cfg(self.cfg, "max_results", 300)
 
         try:
-            companies = self._select_companies(intent)
+            conn = get_connection()
+            companies = self._select_companies(intent, pruned=pruned_companies(conn, self.name))
         except Exception as exc:
             log.error("ats_boards: company selection failed: %s", exc)
             return ProviderResult(provider=self.name, errors=1, error=str(exc))
 
         jobs: list[RawJob] = []
+        attempted: list[str] = []
         errors = 0
         for company in companies:
             platform = company.get("platform")
             slug = company.get("slug")
+            company_key = company.get("name") or slug
+            attempted.append(company_key)
             if platform not in _PLATFORMS or not slug:
                 errors += 1
+                note_company_run(conn, self.name, company_key)
                 continue
             try:
                 payload = _fetch(platform, slug, None)
@@ -286,16 +295,21 @@ class AtsBoardsProvider:
             except Exception as exc:
                 errors += 1
                 log.warning("ats_boards: %s board %r failed: %s", platform, slug, exc)
+                note_company_run(conn, self.name, company_key)
                 continue
+            note_company_run(conn, self.name, company_key, found=len(parsed))
             jobs.extend(parsed[:max_per_company])
             if len(jobs) >= max_results:
                 jobs = jobs[:max_results]
                 break
 
         try:
-            new, _existing = store_raw_jobs(get_connection(), jobs, provider=self.name)
+            new, _existing = store_raw_jobs(conn, jobs, provider=self.name)
         except Exception as exc:
             log.error("ats_boards: storing jobs failed: %s", exc)
             return ProviderResult(provider=self.name, found=len(jobs), stored=0, errors=errors + 1, error=str(exc))
 
-        return ProviderResult(provider=self.name, found=len(jobs), stored=new, errors=errors)
+        return ProviderResult(
+            provider=self.name, found=len(jobs), stored=new, errors=errors,
+            companies=attempted,
+        )

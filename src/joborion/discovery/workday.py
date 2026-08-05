@@ -499,6 +499,20 @@ def scrape_workday(employers: dict | None = None, workers: int = 1) -> dict:
         log.warning("No employers configured. Create config/employers.yaml.")
         return {"found": 0, "new": 0, "existing": 0, "queries": 0}
 
+    from joborion.sourcing.learning import note_company_run, pruned_companies
+    pruned = pruned_companies(get_connection(), "workday")
+    employers = {k: v for k, v in employers.items() if (v.get("name") or k) not in pruned}
+    if pruned:
+        log.info("Skipping %d pruned zero-yield employers", len(pruned))
+    if not employers:
+        log.warning("All Workday employers are pruned; nothing to crawl.")
+        return {"found": 0, "new": 0, "existing": 0, "queries": 0}
+
+    conn = get_connection()
+    employer_names = [(emp.get("name") or key) for key, emp in employers.items()]
+    for name in employer_names:
+        note_company_run(conn, "workday", name)
+
     search_cfg = config.load_search_config()
     queries_cfg = search_cfg.get("queries", [])
     accept_locs, reject_locs, remote_only = _load_location_filter(search_cfg)
@@ -550,4 +564,5 @@ def scrape_workday(employers: dict | None = None, workers: int = 1) -> dict:
         "new": grand_new,
         "existing": grand_existing,
         "queries": len(queries),
+        "companies": employer_names,
     }

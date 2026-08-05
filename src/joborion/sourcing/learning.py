@@ -190,3 +190,123 @@ def reliability_ordering(conn: sqlite3.Connection | None, providers: list) -> li
         return states.get(getattr(provider, "name", "unknown"), (0, 0.0, 0.0))
 
     return sorted(providers, key=key)
+
+
+# ---------------------------------------------------------------------------
+# Per-company yield tracking (zero-yield ATS/Workday pruning)
+# ---------------------------------------------------------------------------
+
+
+def note_company_run(
+    conn: sqlite3.Connection | None,
+    provider: str,
+    company: str,
+    found: int = 0,
+) -> None:
+    """Record that a company board was attempted in this run.
+
+    ``found`` is the number of raw jobs the board produced. The company's
+    ``consecutive_zero`` counter is only advanced by reconcile_company_yields
+    (never here), so a run that fails before the gate cannot over-count.
+    """
+    if conn is None:
+        conn = get_connection()
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "INSERT INTO company_yield (provider, company, total_runs, last_found, last_run_at) "
+        "VALUES (?, ?, 1, ?, ?) "
+        "ON CONFLICT(provider, company) DO UPDATE SET "
+        "total_runs = total_runs + 1, last_found = excluded.last_found, "
+        "last_run_at = excluded.last_run_at",
+        (provider, company, found, now),
+    )
+    conn.commit()
+
+
+def reconcile_company_yields(
+    conn: sqlite3.Connection | None,
+    by_company: dict,
+    noted: list[tuple[str, str]] | None = None,
+) -> None:
+    """Apply gate outcomes to company yield counters.
+
+    ``by_company`` maps provider -> company -> {"found", "passed"} for every
+    company the relevance gate touched. ``noted`` is a list of (provider,
+    company) pairs providers attempted this run. A company advances its
+    ``consecutive_zero`` counter exactly once per run: when the gate saw its
+    jobs and none passed, or when it produced zero raw jobs. Any passing job
+    resets the counter.
+    """
+    if conn is None:
+        conn = get_connection()
+
+    for provider, companies in (by_company or {}).items():
+        for company, counts in companies.items():
+            passed = counts.get("passed", 0) if isinstance(counts, dict) else counts
+            if passed > 0:
+                conn.execute(
+                    "UPDATE company_yield SET consecutive_zero = 0, last_pass_count = ? "
+                    "WHERE provider = ? AND company = ?",
+                    (passed, provider, company),
+                )
+            else:
+                conn.execute(
+                    "UPDATE company_yield SET consecutive_zero = consecutive_zero + 1, "
+                    "last_pass_count = 0 WHERE provider = ? AND company = ?",
+                    (provider, company),
+                )
+
+    for provider, company in noted or []:
+        row = conn.execute(
+            "SELECT last_found FROM company_yield WHERE provider = ? AND company = ?",
+            (provider, company),
+        ).fetchone()
+        if row and row["last_found"] == 0:
+            conn.execute(
+                "UPDATE company_yield SET consecutive_zero = consecutive_zero + 1, "
+                "last_pass_count = 0 WHERE provider = ? AND company = ?",
+                (provider, company),
+            )
+
+    conn.commit()
+
+
+def prune_zero_yield_companies(
+    conn: sqlite3.Connection | None = None,
+    threshold: int = 2,
+) -> list[str]:
+    """Mark companies disabled whose consecutive zero-pass runs reached threshold.
+
+    Returns the pruned company keys as "provider:company" strings.
+    """
+    if conn is None:
+        conn = get_connection()
+    now = datetime.now(timezone.utc).isoformat()
+    rows = conn.execute(
+        "SELECT provider, company FROM company_yield "
+        "WHERE consecutive_zero >= ? AND pruned = 0",
+        (threshold,),
+    ).fetchall()
+    keys = [f"{row['provider']}:{row['company']}" for row in rows]
+    for row in rows:
+        conn.execute(
+            "UPDATE company_yield SET pruned = 1, pruned_at = ? "
+            "WHERE provider = ? AND company = ?",
+            (now, row["provider"], row["company"]),
+        )
+    conn.commit()
+    return keys
+
+
+def pruned_companies(
+    conn: sqlite3.Connection | None,
+    provider: str,
+) -> set[str]:
+    """Return the pruned company names for a provider (skipped on the next run)."""
+    if conn is None:
+        conn = get_connection()
+    rows = conn.execute(
+        "SELECT company FROM company_yield WHERE provider = ? AND pruned = 1",
+        (provider,),
+    ).fetchall()
+    return {row["company"] for row in rows}

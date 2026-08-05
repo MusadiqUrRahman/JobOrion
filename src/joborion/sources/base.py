@@ -91,6 +91,7 @@ class ProviderResult:
     errors: int = 0
     error: str | None = None
     latency_ms: int = 0
+    companies: list[str] | None = None
 
     def ok(self) -> bool:
         return self.errors == 0

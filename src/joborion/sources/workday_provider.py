@@ -21,4 +21,5 @@ class WorkdayProvider:
             found=stats.get("found", 0),
             stored=stats.get("new", 0),
             errors=0,
+            companies=stats.get("companies"),
         )

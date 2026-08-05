@@ -194,6 +194,22 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
         )
     """)
 
+    # Per-company yield tracking (ATS/Workday pruning)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS company_yield (
+            provider        TEXT NOT NULL,
+            company         TEXT NOT NULL,
+            total_runs      INTEGER DEFAULT 0,
+            consecutive_zero INTEGER DEFAULT 0,
+            last_pass_count INTEGER DEFAULT 0,
+            last_found      INTEGER DEFAULT 0,
+            pruned          INTEGER DEFAULT 0,
+            pruned_at       TEXT,
+            last_run_at     TEXT,
+            PRIMARY KEY (provider, company)
+        )
+    """)
+
     # Validation error memory
     conn.execute("""
         CREATE TABLE IF NOT EXISTS validation_errors (

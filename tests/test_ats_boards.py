@@ -335,3 +335,49 @@ class TestAtsBoards:
         assert result.stored == 1
         row = conn.execute("SELECT * FROM jobs WHERE url = ?", ("https://boards.greenhouse.io/good/jobs/1",)).fetchone()
         assert row is not None
+
+    def test_skips_pruned_companies_and_notes_attempts(self, conn, monkeypatch):
+        companies = {
+            "deadbeat": {"platform": "greenhouse", "slug": "deadbeat", "industries": [], "region": "global", "tags": []},
+            "good": {"platform": "greenhouse", "slug": "good", "industries": [], "region": "global", "tags": []},
+        }
+        monkeypatch.setattr("joborion.sources.ats_boards.load_companies", lambda: companies)
+        monkeypatch.setattr(
+            "joborion.sources.ats_boards.load_preferences",
+            lambda: {"industries": [], "sponsorship_ok": True},
+        )
+        monkeypatch.setattr("joborion.sources.ats_boards.get_connection", lambda: conn)
+        conn.execute(
+            "INSERT INTO company_yield (provider, company, pruned) VALUES ('ats_boards', 'deadbeat', 1)"
+        )
+        conn.commit()
+
+        def fake_fetch(slug, params):
+            return {
+                "jobs": [
+                    {
+                        "id": 1,
+                        "title": "Engineer",
+                        "location": {"name": "Remote"},
+                        "absolute_url": f"https://boards.greenhouse.io/{slug}/jobs/1",
+                        "updated_at": "2026-01-01T00:00:00Z",
+                        "company_name": slug,
+                    }
+                ]
+            }
+
+        monkeypatch.setattr("joborion.sources.ats_boards._fetch_greenhouse", fake_fetch)
+
+        provider = AtsBoardsProvider({})
+        result = provider.search({})
+
+        assert result.companies == ["good"]
+        assert result.found == 1
+        row = conn.execute(
+            "SELECT * FROM jobs WHERE url = ?", ("https://boards.greenhouse.io/deadbeat/jobs/1",)
+        ).fetchone()
+        assert row is None
+        noted = conn.execute(
+            "SELECT total_runs FROM company_yield WHERE provider='ats_boards' AND company='good'"
+        ).fetchone()
+        assert noted["total_runs"] == 1

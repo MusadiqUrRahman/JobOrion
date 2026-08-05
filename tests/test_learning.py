@@ -6,7 +6,11 @@ from joborion.database import close_connection, init_db
 from joborion.sourcing.learning import (
     auto_disable,
     is_provider_disabled,
+    note_company_run,
     provider_states,
+    prune_zero_yield_companies,
+    pruned_companies,
+    reconcile_company_yields,
     record_provider_run,
     reliability_ordering,
 )
@@ -133,3 +137,63 @@ class TestReliabilityOrdering:
         conn.commit()
         order = [p.name for p in reliability_ordering(conn, [_P("x"), _P("y")])]
         assert order == ["x", "y"]
+
+
+class TestCompanyYield:
+    def test_note_records_runs(self, conn):
+        note_company_run(conn, "ats_boards", "stripe")
+        note_company_run(conn, "ats_boards", "stripe")
+        row = conn.execute(
+            "SELECT * FROM company_yield WHERE provider='ats_boards' AND company='stripe'"
+        ).fetchone()
+        assert row["total_runs"] == 2
+
+    def test_passes_reset_consecutive_zero(self, conn):
+        note_company_run(conn, "ats_boards", "stripe")
+        reconcile_company_yields(conn, {"ats_boards": {"stripe": {"found": 5, "passed": 0}}})
+        note_company_run(conn, "ats_boards", "stripe")
+        reconcile_company_yields(conn, {"ats_boards": {"stripe": {"found": 5, "passed": 2}}})
+        row = conn.execute(
+            "SELECT * FROM company_yield WHERE provider='ats_boards' AND company='stripe'"
+        ).fetchone()
+        assert row["consecutive_zero"] == 0
+        assert row["last_pass_count"] == 2
+
+    def test_zero_pass_advances_counter(self, conn):
+        note_company_run(conn, "ats_boards", "deadbeat")
+        reconcile_company_yields(conn, {"ats_boards": {"deadbeat": {"found": 3, "passed": 0}}})
+        row = conn.execute(
+            "SELECT * FROM company_yield WHERE provider='ats_boards' AND company='deadbeat'"
+        ).fetchone()
+        assert row["consecutive_zero"] == 1
+
+    def test_prunes_zero_yield_companies(self, conn):
+        for _ in range(2):
+            note_company_run(conn, "ats_boards", "deadbeat")
+            reconcile_company_yields(conn, {"ats_boards": {"deadbeat": {"found": 2, "passed": 0}}})
+        note_company_run(conn, "ats_boards", "goodco")
+        reconcile_company_yields(conn, {"ats_boards": {"goodco": {"found": 4, "passed": 3}}})
+
+        pruned = prune_zero_yield_companies(conn)
+        assert pruned == ["ats_boards:deadbeat"]
+        assert "deadbeat" in pruned_companies(conn, "ats_boards")
+        assert "goodco" not in pruned_companies(conn, "ats_boards")
+
+    def test_zero_found_company_advances_via_reconcile(self, conn):
+        note_company_run(conn, "workday", "acme", found=0)
+        reconcile_company_yields(conn, {}, noted=[("workday", "acme")])
+        row = conn.execute(
+            "SELECT * FROM company_yield WHERE provider='workday' AND company='acme'"
+        ).fetchone()
+        assert row["consecutive_zero"] == 1
+
+    def test_zero_found_company_pruned_after_two_runs(self, conn):
+        for _ in range(2):
+            note_company_run(conn, "workday", "acme", found=0)
+            reconcile_company_yields(conn, {}, noted=[("workday", "acme")])
+        assert "workday:acme" in prune_zero_yield_companies(conn)
+
+    def test_below_threshold_not_pruned(self, conn):
+        note_company_run(conn, "workday", "acme", found=0)
+        reconcile_company_yields(conn, {}, noted=[("workday", "acme")])
+        assert prune_zero_yield_companies(conn) == []

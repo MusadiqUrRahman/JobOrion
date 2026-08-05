@@ -35,7 +35,12 @@ from joborion.llm import get_client
 from joborion.sources.registry import build_providers, run_providers
 from joborion.sourcing.filter import apply_relevance_gate
 from joborion.sourcing.intent import map_arrangement
-from joborion.sourcing.learning import record_provider_run, reliability_ordering
+from joborion.sourcing.learning import (
+    record_provider_run,
+    reliability_ordering,
+    reconcile_company_yields,
+    prune_zero_yield_companies,
+)
 from joborion.wizard.preferences import load_preferences
 
 log = logging.getLogger(__name__)
@@ -168,6 +173,18 @@ def _run_discovery_stage(workers: int = 1, mode: str | None = None) -> dict:
             error=result.error,
         )
         record_site_attempt(result.provider, success=result.ok(), duration_ms=result.latency_ms)
+
+    noted = [
+        (result.provider, company)
+        for result in results
+        for company in (result.companies or [])
+    ]
+    reconcile_company_yields(conn, gate.get("by_company", {}), noted)
+    pruned = prune_zero_yield_companies(conn)
+    if pruned:
+        print_warning(
+            f"Zero-yield company prune ({len(pruned)}): {', '.join(sorted(pruned))}"
+        )
 
     return stats
 

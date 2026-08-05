@@ -200,7 +200,7 @@ def apply_relevance_gate(conn, intent: dict, dedup: bool = True) -> dict:
     rows = conn.execute("SELECT * FROM jobs WHERE is_remote IS NULL ORDER BY discovered_at").fetchall()
     summary: dict = {
         "processed": 0, "passed": 0, "dropped": 0,
-        "reasons": {}, "by_provider": {},
+        "reasons": {}, "by_provider": {}, "by_company": {},
     }
 
     for row in rows:
@@ -210,6 +210,10 @@ def apply_relevance_gate(conn, intent: dict, dedup: bool = True) -> dict:
         provider = norm.source_provider or "unknown"
         provider_stats = summary["by_provider"].setdefault(provider, {"found": 0, "passed": 0, "dropped": 0})
         provider_stats["found"] += 1
+        company_stats = summary["by_company"].setdefault(
+            provider, {}
+        ).setdefault(norm.company or "unknown", {"found": 0, "passed": 0})
+        company_stats["found"] += 1
 
         drop_reason = None
         if decision.passed and dedup and is_duplicate(conn, norm):
@@ -236,6 +240,7 @@ def apply_relevance_gate(conn, intent: dict, dedup: bool = True) -> dict:
             )
             summary["passed"] += 1
             provider_stats["passed"] += 1
+            company_stats["passed"] += 1
         else:
             conn.execute("DELETE FROM jobs WHERE url = ?", (row["url"],))
             summary["dropped"] += 1

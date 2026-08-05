@@ -375,7 +375,7 @@ Each task = one purpose, one test, exact files. `✓` = check off at completion.
 - Disable provider after N consecutive failures (e.g. Bayt); deprioritize low-yield; re-enable after cooldown
 - Test: `test_learning.py::test_auto_disable_after_failures`
 
-**D3. Company auto-prune**
+**D3. Company auto-prune** ✓
 - Files: `src/joborion/sourcing/learning.py`
 - Drop ATS/Workday companies with 0 passing jobs over 2 runs; surface in report
 - Test: `test_learning.py::test_prunes_zero_yield_companies`
