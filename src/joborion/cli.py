@@ -574,6 +574,29 @@ def apply(
 
 
 @app.command()
+def feedback(
+    url: str = typer.Argument(..., help="Job URL to rate."),
+    sentiment: str = typer.Argument(
+        ..., help="like or dislike",
+    ),
+) -> None:
+    """Rate a job as like/dislike to tune future relevance filtering."""
+    _bootstrap()
+
+    from joborion.database import get_connection
+    from joborion.sourcing.learning import record_feedback
+
+    try:
+        recorded = record_feedback(get_connection(), url, sentiment)
+    except ValueError as e:
+        print_error(f"Invalid feedback: {e}")
+        raise typer.Exit(code=1)
+
+    title = recorded["title"] or url
+    print_success(f"Recorded {sentiment} for: {title} (will adjust future title matching)")
+
+
+@app.command()
 def status() -> None:
     """Show pipeline statistics from the database."""
     _bootstrap()

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 from rapidfuzz import fuzz
 
+from joborion.sourcing.learning import feedback_title_terms
 from joborion.sourcing.normalize import (
     NormalizedJob,
     annualize,
@@ -133,9 +134,18 @@ def title_matches(title: str, keywords: list[str]) -> bool:
 
 def _title_fails(norm: NormalizedJob, intent: dict) -> bool:
     keywords = intent.get("keywords") or []
-    if not keywords:
+    weights = intent.get("feedback_weights") or {}
+    title_tokens = set(normalize_title(norm.title).split())
+
+    disliked = {term for term, weight in weights.items() if weight < 0}
+    if title_tokens & disliked:
+        return True
+    if title_matches(norm.title, keywords):
         return False
-    return not title_matches(norm.title, keywords)
+    liked = {term for term, weight in weights.items() if weight > 0}
+    if title_tokens & liked:
+        return False  # user-liked title survives even without a keyword match
+    return bool(keywords)
 
 
 def evaluate(norm: NormalizedJob, intent: dict) -> FilterDecision:
@@ -198,6 +208,7 @@ def apply_relevance_gate(conn, intent: dict, dedup: bool = True) -> dict:
         {"processed", "passed", "dropped", "reasons", "by_provider"}
     """
     rows = conn.execute("SELECT * FROM jobs WHERE is_remote IS NULL ORDER BY discovered_at").fetchall()
+    intent.setdefault("feedback_weights", feedback_title_terms(conn))
     summary: dict = {
         "processed": 0, "passed": 0, "dropped": 0,
         "reasons": {}, "by_provider": {}, "by_company": {},

@@ -285,3 +285,33 @@ class TestApplyRelevanceGate:
         )
         summary = apply_relevance_gate(conn, {}, dedup=False)
         assert summary["passed"] == 2
+
+    def test_disliked_title_dropped_despite_keyword_match(self, conn):
+        from joborion.sourcing.learning import record_feedback
+
+        store_raw_jobs(
+            conn,
+            [RawJob(title="Senior Java Developer", company="Acme", location="Remote",
+                    url="https://x.com/1", source="jobspy")],
+        )
+        record_feedback(conn, "https://x.com/1", "dislike")
+        summary = apply_relevance_gate(
+            conn, {"keywords": ["software engineer"], "locations": ["worldwide"]}
+        )
+        assert summary["passed"] == 0
+        assert summary["dropped"] == 1
+
+    def test_liked_title_passes_without_keyword_match(self, conn):
+        from joborion.sourcing.learning import record_feedback
+
+        store_raw_jobs(
+            conn,
+            [RawJob(title="Senior Python Engineer", company="Acme", location="Remote",
+                    url="https://x.com/2", source="jobspy")],
+        )
+        record_feedback(conn, "https://x.com/2", "like")
+        summary = apply_relevance_gate(
+            conn, {"keywords": ["rust developer"], "locations": ["worldwide"]}
+        )
+        assert summary["passed"] == 1
+        assert summary["dropped"] == 0

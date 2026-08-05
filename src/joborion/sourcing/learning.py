@@ -310,3 +310,77 @@ def pruned_companies(
         (provider,),
     ).fetchall()
     return {row["company"] for row in rows}
+
+
+# ---------------------------------------------------------------------------
+# User feedback -> relevance weights
+# ---------------------------------------------------------------------------
+
+VALID_SENTIMENTS = ("like", "dislike")
+
+
+def record_feedback(
+    conn: sqlite3.Connection | None,
+    job_url: str,
+    sentiment: str,
+) -> dict:
+    """Store a like/dislike for a job and tag the job row for the gate.
+
+    The job's normalized title tokens become positive (like) or negative
+    (dislike) weights consumed by the relevance gate's title check.
+
+    Returns:
+        {"url", "sentiment", "title", "company"}.
+    """
+    sentiment = (sentiment or "").strip().lower()
+    if sentiment not in VALID_SENTIMENTS:
+        raise ValueError(f"sentiment must be one of {VALID_SENTIMENTS}")
+
+    if conn is None:
+        conn = get_connection()
+    row = conn.execute(
+        "SELECT title, company FROM jobs WHERE url = ?", (job_url,)
+    ).fetchone()
+    title = row["title"] if row else None
+    company = row["company"] if row else None
+
+    conn.execute(
+        """INSERT INTO user_feedback (job_url, job_title, company, sentiment)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(job_url, sentiment) DO UPDATE SET
+               job_title = excluded.job_title,
+               company = excluded.company,
+               created_at = datetime('now')""",
+        (job_url, title, company, sentiment),
+    )
+    conn.execute(
+        "UPDATE jobs SET user_feedback = ? WHERE url = ?",
+        (sentiment, job_url),
+    )
+    conn.commit()
+    return {"url": job_url, "sentiment": sentiment, "title": title, "company": company}
+
+
+def feedback_title_terms(conn: sqlite3.Connection | None) -> dict[str, int]:
+    """Net weight per normalized title token across all feedback.
+
+    A token seen in a liked job counts +1, in a disliked job -1, so the
+    relevance gate can down-weight titles carrying strongly disliked terms.
+    """
+    if conn is None:
+        conn = get_connection()
+    from joborion.sourcing.normalize import normalize_title
+
+    weights: dict[str, int] = {}
+    rows = conn.execute(
+        "SELECT job_title, sentiment FROM user_feedback "
+        "WHERE job_title IS NOT NULL"
+    ).fetchall()
+    for row in rows:
+        tokens = normalize_title(row["job_title"]).split()
+        delta = 1 if row["sentiment"] == "like" else -1
+        for token in tokens:
+            if len(token) < 3:
+                continue
+            weights[token] = weights.get(token, 0) + delta
+    return weights

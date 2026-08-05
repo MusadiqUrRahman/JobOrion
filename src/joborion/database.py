@@ -117,6 +117,7 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
             source_provider       TEXT,
             apply_url_direct      TEXT,
             posted_at             TEXT,
+            user_feedback         TEXT,
 
             -- Enrichment stage (detail_scraper)
             full_description      TEXT,
@@ -221,6 +222,18 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
             last_passed     INTEGER NOT NULL DEFAULT 0,
             active          INTEGER NOT NULL DEFAULT 1,
             UNIQUE (query)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_feedback (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_url         TEXT NOT NULL,
+            job_title       TEXT,
+            company         TEXT,
+            sentiment       TEXT NOT NULL,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (job_url, sentiment)
         )
     """)
 
@@ -377,6 +390,7 @@ _ALL_COLUMNS: dict[str, str] = {
     "source_provider": "TEXT",
     "apply_url_direct": "TEXT",
     "posted_at": "TEXT",
+    "user_feedback": "TEXT",
     # Enrichment
     "full_description": "TEXT",
     "application_url": "TEXT",

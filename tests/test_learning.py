@@ -5,12 +5,14 @@ import pytest
 from joborion.database import close_connection, init_db
 from joborion.sourcing.learning import (
     auto_disable,
+    feedback_title_terms,
     is_provider_disabled,
     note_company_run,
     provider_states,
     prune_zero_yield_companies,
     pruned_companies,
     reconcile_company_yields,
+    record_feedback,
     record_provider_run,
     reliability_ordering,
 )
@@ -197,3 +199,53 @@ class TestCompanyYield:
         note_company_run(conn, "workday", "acme", found=0)
         reconcile_company_yields(conn, {}, noted=[("workday", "acme")])
         assert prune_zero_yield_companies(conn) == []
+
+
+class TestFeedback:
+    def _seed_job(self, conn, url, title, company="Acme"):
+        conn.execute(
+            "INSERT INTO jobs (url, title, company) VALUES (?, ?, ?)",
+            (url, title, company),
+        )
+        conn.commit()
+
+    def test_record_feedback_upserts(self, conn):
+        self._seed_job(conn, "https://a/1", "Senior Python Engineer")
+        record_feedback(conn, "https://a/1", "like")
+        record_feedback(conn, "https://a/1", "like")
+        rows = conn.execute(
+            "SELECT * FROM user_feedback WHERE job_url='https://a/1'"
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["sentiment"] == "like"
+        job = conn.execute(
+            "SELECT user_feedback FROM jobs WHERE url='https://a/1'"
+        ).fetchone()
+        assert job["user_feedback"] == "like"
+
+    def test_rejects_invalid_sentiment(self, conn):
+        self._seed_job(conn, "https://a/1", "Python Engineer")
+        with pytest.raises(ValueError):
+            record_feedback(conn, "https://a/1", "meh")
+
+    def test_feedback_weights_title_terms(self, conn):
+        self._seed_job(conn, "https://a/1", "Senior Python Engineer")
+        self._seed_job(conn, "https://a/2", "Senior Java Developer")
+        record_feedback(conn, "https://a/1", "like")
+        record_feedback(conn, "https://a/2", "dislike")
+
+        weights = feedback_title_terms(conn)
+        assert weights["python"] == 1
+        assert weights["engineer"] == 1
+        assert weights["java"] == -1
+        assert weights["developer"] == -1
+        assert weights["senior"] == 0  # liked once, disliked once -> net 0
+
+    def test_unknown_job_records_without_title(self, conn):
+        record_feedback(conn, "https://unknown/1", "like")
+        row = conn.execute(
+            "SELECT * FROM user_feedback WHERE job_url='https://unknown/1'"
+        ).fetchone()
+        assert row is not None
+        assert row["job_title"] is None
+        assert feedback_title_terms(conn) == {}

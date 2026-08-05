@@ -385,7 +385,7 @@ Each task = one purpose, one test, exact files. `✓` = check off at completion.
 - After evaluate: LLM generates expanded queries from top-fit job titles + profile; `query_history` table; tier rotation
 - Test: `test_query_evolution.py::test_expands_queries_from_fit` (mock LLM)
 
-**D5. User feedback loop**
+**D5. User feedback loop** ✓
 - Files: `src/joborion/sourcing/learning.py`, `src/joborion/cli.py`
 - `joborion feedback <url> like|dislike` → `user_feedback` → weights in relevance gate
 - Test: `test_learning.py::test_feedback_weights_title_terms`
