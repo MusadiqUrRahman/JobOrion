@@ -27,7 +27,7 @@ from joborion.ui import (
     print_status_bar, make_gradient_panel,
 )
 from joborion.database import (
-    init_db, get_connection, get_stats, record_source_run,
+    init_db, get_connection, get_stats,
     get_blocked_sites_from_memory, record_site_attempt,
     start_run, finish_run,
 )
@@ -35,6 +35,7 @@ from joborion.llm import get_client
 from joborion.sources.registry import build_providers, run_providers
 from joborion.sourcing.filter import apply_relevance_gate
 from joborion.sourcing.intent import map_arrangement
+from joborion.sourcing.learning import record_provider_run, reliability_ordering
 from joborion.wizard.preferences import load_preferences
 
 log = logging.getLogger(__name__)
@@ -126,7 +127,10 @@ def _run_discovery_stage(workers: int = 1, mode: str | None = None) -> dict:
     if blocked:
         print_warning(f"Skipping blocked providers: {', '.join(blocked)}")
 
-    providers = [p for p in build_providers() if getattr(p, "name", "") not in blocked]
+    providers = reliability_ordering(
+        get_connection(),
+        [p for p in build_providers() if getattr(p, "name", "") not in blocked],
+    )
     if not providers:
         print_warning("No providers enabled in sources.yaml")
         return {}
@@ -137,17 +141,13 @@ def _run_discovery_stage(workers: int = 1, mode: str | None = None) -> dict:
     stats: dict = {}
     for result in results:
         stats[result.provider] = "ok" if result.ok() else f"error: {result.error}"
-        record_source_run(
-            result.provider, success=result.ok(),
-            jobs_found=result.found, error=result.error,
-        )
-        record_site_attempt(result.provider, success=result.ok(), duration_ms=result.latency_ms)
         if result.ok():
             print_success(f"{result.provider}: {result.found} found, {result.stored} new")
         else:
             print_error(f"{result.provider}: {result.error or 'failed'}")
 
-    gate = apply_relevance_gate(get_connection(), intent)
+    conn = get_connection()
+    gate = apply_relevance_gate(conn, intent)
     if gate["processed"]:
         print_success(
             f"Relevance gate: {gate['passed']} kept, {gate['dropped']} dropped "
@@ -155,6 +155,19 @@ def _run_discovery_stage(workers: int = 1, mode: str | None = None) -> dict:
         )
         for reason, count in sorted(gate["reasons"].items()):
             print_info(f"  dropped: {reason} x{count}")
+
+    by_provider = gate.get("by_provider", {})
+    for result in results:
+        record_provider_run(
+            conn, result.provider,
+            found=result.found,
+            stored=result.stored,
+            passed=by_provider.get(result.provider, {}).get("passed", 0),
+            errors=result.errors,
+            latency_ms=result.latency_ms,
+            error=result.error,
+        )
+        record_site_attempt(result.provider, success=result.ok(), duration_ms=result.latency_ms)
 
     return stats
 

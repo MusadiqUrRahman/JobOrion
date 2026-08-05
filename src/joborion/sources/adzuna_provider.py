@@ -143,5 +143,5 @@ class AdzunaProvider:
         if not jobs:
             return ProviderResult(provider=self.name)
 
-        new, _existing = store_raw_jobs(get_connection(), jobs)
+        new, _existing = store_raw_jobs(get_connection(), jobs, provider=self.name)
         return ProviderResult(provider=self.name, found=len(jobs), stored=new, errors=0)

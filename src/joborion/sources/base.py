@@ -111,8 +111,17 @@ class JobProvider(Protocol):
         ...
 
 
-def store_raw_jobs(conn: sqlite3.Connection, jobs: list[RawJob]) -> tuple[int, int]:
-    """Insert RawJobs into the jobs table. Returns (new, existing)."""
+def store_raw_jobs(
+    conn: sqlite3.Connection,
+    jobs: list[RawJob],
+    provider: str | None = None,
+) -> tuple[int, int]:
+    """Insert RawJobs into the jobs table. Returns (new, existing).
+
+    ``provider`` names the sourcing provider that found these jobs; it is
+    stored in ``source_provider`` (falling back to each job's own ``source``)
+    so the relevance gate can attribute results per provider.
+    """
     now = datetime.now(timezone.utc).isoformat()
     new = 0
     existing = 0
@@ -131,12 +140,13 @@ def store_raw_jobs(conn: sqlite3.Connection, jobs: list[RawJob]) -> tuple[int, i
             detail_scraped_at = now
 
         site = job.site or job.source
+        source_provider = provider or job.source
 
         try:
             conn.execute(
                 "INSERT INTO jobs (url, title, company, salary, description, location, site, strategy, discovered_at, "
-                "full_description, application_url, detail_scraped_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "full_description, application_url, detail_scraped_at, source_provider) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     url,
                     job.title or None,
@@ -150,6 +160,7 @@ def store_raw_jobs(conn: sqlite3.Connection, jobs: list[RawJob]) -> tuple[int, i
                     full_description,
                     job.apply_url or None,
                     detail_scraped_at,
+                    source_provider or None,
                 ),
             )
             new += 1

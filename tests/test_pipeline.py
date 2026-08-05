@@ -41,7 +41,7 @@ class TestSearchStage:
         fake = _FakeProvider()
         with patch("joborion.pipeline.build_providers", return_value=[fake]):
             with patch("joborion.pipeline.get_blocked_sites_from_memory", return_value=[]):
-                with patch("joborion.pipeline.record_source_run") as record_run:
+                with patch("joborion.pipeline.record_provider_run") as record_run:
                     with patch("joborion.pipeline.record_site_attempt") as record_attempt:
                         with _gate_patch() as gate_call:
                             stats = _run_discovery_stage()
@@ -56,7 +56,7 @@ class TestSearchStage:
         fake = _FakeProvider()
         with patch("joborion.pipeline.build_providers", return_value=[fake]):
             with patch("joborion.pipeline.get_blocked_sites_from_memory", return_value=["fake"]):
-                with patch("joborion.pipeline.record_source_run"):
+                with patch("joborion.pipeline.record_provider_run"):
                     with patch("joborion.pipeline.record_site_attempt"):
                         with _gate_patch() as gate_call:
                             stats = _run_discovery_stage()
@@ -68,14 +68,14 @@ class TestSearchStage:
         broken = _BrokenProvider()
         with patch("joborion.pipeline.build_providers", return_value=[broken]):
             with patch("joborion.pipeline.get_blocked_sites_from_memory", return_value=[]):
-                with patch("joborion.pipeline.record_source_run") as record_run:
+                with patch("joborion.pipeline.record_provider_run") as record_run:
                     with patch("joborion.pipeline.record_site_attempt"):
                         with _gate_patch() as gate_call:
                             stats = _run_discovery_stage()
         assert stats["broken"] == "error: boom"
         record_run.assert_called_once()
         kwargs = record_run.call_args.kwargs
-        assert kwargs["success"] is False
+        assert kwargs["errors"] == 1
         assert kwargs["error"] == "boom"
         gate_call.assert_called_once()
 
@@ -83,7 +83,7 @@ class TestSearchStage:
         fake = _FakeProvider()
         with patch("joborion.pipeline.build_providers", return_value=[fake]):
             with patch("joborion.pipeline.get_blocked_sites_from_memory", return_value=[]):
-                with patch("joborion.pipeline.record_source_run"):
+                with patch("joborion.pipeline.record_provider_run"):
                     with patch("joborion.pipeline.record_site_attempt"):
                         with patch("joborion.pipeline.load_preferences",
                                    return_value={"arrangement": "remote"}) as load_prefs:
@@ -109,7 +109,7 @@ class TestSearchStage:
         fake = _FakeProvider()
         with patch("joborion.pipeline.build_providers", return_value=[fake]):
             with patch("joborion.pipeline.get_blocked_sites_from_memory", return_value=[]):
-                with patch("joborion.pipeline.record_source_run"):
+                with patch("joborion.pipeline.record_provider_run"):
                     with patch("joborion.pipeline.record_site_attempt"):
                         with patch("joborion.pipeline.load_preferences",
                                    return_value={"arrangement": "all"}):
@@ -119,3 +119,47 @@ class TestSearchStage:
                                     with _gate_patch():
                                         _run_discovery_stage()
         assert fake.last_intent["keywords"] == []
+
+    def test_records_passed_metrics_per_provider(self, tmp_path):
+        from joborion.database import close_connection, init_db
+        from joborion.sources.base import RawJob, store_raw_jobs
+
+        db_path = tmp_path / "t.db"
+        close_connection(str(db_path))
+        conn = init_db(str(db_path))
+        fake = _FakeProvider()
+        store_raw_jobs(
+            conn,
+            [
+                RawJob(
+                    title="Senior Python Engineer", company="Acme", location="Remote",
+                    description="Building distributed systems in Python",
+                    url="https://acme.com/1", source="fake",
+                )
+            ],
+        )
+        with patch("joborion.pipeline.build_providers", return_value=[fake]):
+            with patch("joborion.pipeline.get_blocked_sites_from_memory", return_value=[]):
+                with patch("joborion.pipeline.record_site_attempt"):
+                    with patch("joborion.pipeline.load_preferences",
+                               return_value={"arrangement": "remote"}):
+                        with patch("joborion.pipeline.map_arrangement",
+                                   return_value={"mode": "remote", "locations": ["worldwide"],
+                                                "job_types": ["all"], "keywords": ["python"]}):
+                            with patch("joborion.pipeline.load_profile", return_value={}):
+                                with patch("joborion.pipeline.get_connection", return_value=conn):
+                                    stats = _run_discovery_stage()
+
+        assert stats == {"fake": "ok"}
+        state = conn.execute(
+            "SELECT * FROM source_stats WHERE source_name = 'fake'"
+        ).fetchone()
+        assert state["total_runs"] == 1
+        assert state["total_passed"] == 1
+        assert state["consecutive_failures"] == 0
+        metric = conn.execute(
+            "SELECT * FROM provider_metrics WHERE provider = 'fake'"
+        ).fetchone()
+        assert metric["found"] == 3
+        assert metric["passed"] == 1
+        close_connection(str(db_path))

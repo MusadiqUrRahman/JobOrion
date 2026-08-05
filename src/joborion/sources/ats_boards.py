@@ -293,7 +293,7 @@ class AtsBoardsProvider:
                 break
 
         try:
-            new, _existing = store_raw_jobs(get_connection(), jobs)
+            new, _existing = store_raw_jobs(get_connection(), jobs, provider=self.name)
         except Exception as exc:
             log.error("ats_boards: storing jobs failed: %s", exc)
             return ProviderResult(provider=self.name, found=len(jobs), stored=0, errors=errors + 1, error=str(exc))

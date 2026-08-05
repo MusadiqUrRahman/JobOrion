@@ -356,12 +356,21 @@ Each task = one purpose, one test, exact files. `✓` = check off at completion.
 
 ### Phase D — Self-Improving Sourcing
 
-**D1. Source metrics recording**
+> Discoveries (2026-08-05): `source_provider` was keyed off the *board* (site
+> column, e.g. "Remotive") while pipeline metrics are keyed off the *provider*
+> (e.g. "remote_boards") -- attributed `passed` counts were being lost. Fixed by
+> writing the provider name into `source_provider` at insert across all five
+> storage paths (store_raw_jobs gains a `provider` arg; jobspy/workday/ai_scraper
+> INSERTs updated; jobspy/workday/ai_scraper now also persist `company` so C4
+> dedup works on their jobs too). record_provider_run replaces record_source_run
+> in the discovery stage; reliability_ordering is applied before running.
+
+**D1. Source metrics recording** ✓
 - Files: `src/joborion/sourcing/learning.py` (NEW), `src/joborion/database.py`
 - Record found/passed/scored/avg_fit/applied/rejected/errors/latency per provider; `consecutive_failures` counter
 - Test: `test_learning.py::test_records_metrics`
 
-**D2. Reliability ordering + auto-disable**
+**D2. Reliability ordering + auto-disable** ✓
 - Files: `src/joborion/sources/registry.py`
 - Disable provider after N consecutive failures (e.g. Bayt); deprioritize low-yield; re-enable after cooldown
 - Test: `test_learning.py::test_auto_disable_after_failures`

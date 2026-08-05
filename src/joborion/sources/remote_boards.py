@@ -365,7 +365,7 @@ class RemoteBoardsProvider:
 
         new = 0
         try:
-            new, _ = store_raw_jobs(get_connection(), jobs)
+            new, _ = store_raw_jobs(get_connection(), jobs, provider=self.name)
         except Exception as e:
             errors += 1
             log.warning("remote_boards store failed: %s", e)

@@ -165,7 +165,32 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
             last_success_at TEXT,
             last_failure_at TEXT,
             last_error      TEXT,
-            avg_jobs_per_run REAL DEFAULT 0.0
+            avg_jobs_per_run REAL DEFAULT 0.0,
+            consecutive_failures INTEGER DEFAULT 0,
+            disabled        INTEGER DEFAULT 0,
+            disabled_at     TEXT,
+            total_passed    INTEGER DEFAULT 0,
+            total_fit       REAL DEFAULT 0.0,
+            avg_fit         REAL DEFAULT 0.0
+        )
+    """)
+
+    # Per-provider run metrics (self-improving sourcing)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS provider_metrics (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider        TEXT NOT NULL,
+            run_id          TEXT,
+            run_started_at  TEXT,
+            found           INTEGER DEFAULT 0,
+            stored          INTEGER DEFAULT 0,
+            passed          INTEGER DEFAULT 0,
+            scored          INTEGER DEFAULT 0,
+            applied         INTEGER DEFAULT 0,
+            rejected        INTEGER DEFAULT 0,
+            errors          INTEGER DEFAULT 0,
+            latency_ms      INTEGER DEFAULT 0,
+            avg_fit         REAL DEFAULT 0.0
         )
     """)
 
@@ -272,6 +297,7 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
 
     # Run migrations for any columns added after initial schema
     ensure_columns(conn)
+    ensure_columns(conn, table="source_stats", columns=_SOURCE_STATS_COLUMNS)
 
     # Relevance-stage query support (recent unfiltered jobs, per-provider stats)
     conn.execute(
@@ -286,6 +312,17 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
 # Complete column registry: column_name -> SQL type with optional default.
 # This is the single source of truth. Adding a column here is all that's needed
 # for it to appear in both new databases and migrated ones.
+# Add-only columns for the source_stats table (self-improving sourcing).
+_SOURCE_STATS_COLUMNS: dict[str, str] = {
+    "consecutive_failures": "INTEGER DEFAULT 0",
+    "disabled": "INTEGER DEFAULT 0",
+    "disabled_at": "TEXT",
+    "total_passed": "INTEGER DEFAULT 0",
+    "total_fit": "REAL DEFAULT 0.0",
+    "avg_fit": "REAL DEFAULT 0.0",
+}
+
+
 _ALL_COLUMNS: dict[str, str] = {
     # Discovery
     "url": "TEXT PRIMARY KEY",
@@ -342,17 +379,23 @@ _ALL_COLUMNS: dict[str, str] = {
 }
 
 
-def ensure_columns(conn: sqlite3.Connection | None = None) -> list[str]:
-    """Add any missing columns to the jobs table (forward migration).
+def ensure_columns(
+    conn: sqlite3.Connection | None = None,
+    table: str = "jobs",
+    columns: dict[str, str] | None = None,
+) -> list[str]:
+    """Add any missing columns to a table (forward migration).
 
     Reads the current table schema via PRAGMA table_info and compares against
-    the full column registry. Any missing columns are added with ALTER TABLE.
+    the column registry. Any missing columns are added with ALTER TABLE.
 
     This makes it safe to upgrade the database from any previous version --
     columns are only added, never removed or renamed.
 
     Args:
         conn: Database connection. Uses get_connection() if None.
+        table: Table to migrate (defaults to the jobs table).
+        columns: Column registry; defaults to the full jobs registry.
 
     Returns:
         List of column names that were added (empty if schema was already current).
@@ -360,16 +403,17 @@ def ensure_columns(conn: sqlite3.Connection | None = None) -> list[str]:
     if conn is None:
         conn = get_connection()
 
-    existing = {row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+    registry = _ALL_COLUMNS if columns is None else columns
+    existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     added = []
 
-    for col, dtype in _ALL_COLUMNS.items():
+    for col, dtype in registry.items():
         if col not in existing:
             # PRIMARY KEY columns can't be added via ALTER TABLE, but url
             # is always created with the table itself so this is safe
             if "PRIMARY KEY" in dtype:
                 continue
-            conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} {dtype}")
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {dtype}")
             added.append(col)
 
     if added:

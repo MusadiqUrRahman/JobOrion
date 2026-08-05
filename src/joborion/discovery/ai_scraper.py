@@ -112,10 +112,11 @@ def _store_jobs_filtered(
             continue
         try:
             conn.execute(
-                "INSERT INTO jobs (url, title, salary, description, location, site, strategy, discovered_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (url, job.get("title"), job.get("salary"), job.get("description"),
-                 job.get("location"), site, strategy, now),
+                "INSERT INTO jobs (url, title, company, salary, description, location, site, strategy, "
+                "discovered_at, source_provider) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (url, job.get("title"), job.get("company"), job.get("salary"), job.get("description"),
+                 job.get("location"), site, strategy, now, "ai_sites"),
             )
             new += 1
         except sqlite3.IntegrityError:

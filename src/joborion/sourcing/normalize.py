@@ -352,7 +352,9 @@ def normalize_job(row: dict) -> NormalizedJob:
         salary_max=salary_max,
         salary_currency=salary_currency,
         salary_interval=salary_interval,
-        source_provider=(row.get("site") or row.get("source") or "").strip(),
+        source_provider=(
+            row.get("source_provider") or row.get("site") or row.get("source") or ""
+        ).strip(),
         apply_url_direct=(row.get("application_url") or url),
         posted_at=(row.get("discovered_at") or row.get("posted_at") or ""),
     )

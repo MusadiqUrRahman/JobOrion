@@ -133,6 +133,44 @@ class TestStructuredColumns:
         assert "idx_jobs_provider_remote_fit" in indexes
 
 
+# ── provider metrics + reliability state (Phase D) ─────────────────────
+
+
+class TestProviderMetrics:
+    def test_provider_metrics_table_exists(self, conn):
+        tables = {row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()}
+        assert "provider_metrics" in tables
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(provider_metrics)").fetchall()}
+        for col in ("provider", "found", "stored", "passed", "scored", "applied",
+                    "rejected", "errors", "latency_ms", "avg_fit"):
+            assert col in cols, f"missing column: {col}"
+
+    def test_source_stats_has_reliability_columns(self, conn):
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(source_stats)").fetchall()}
+        for col in ("consecutive_failures", "disabled", "disabled_at",
+                    "total_passed", "total_fit", "avg_fit"):
+            assert col in cols, f"missing column: {col}"
+
+    def test_source_stats_columns_migrated(self, tmp_db):
+        c = get_connection(str(tmp_db))
+        c.execute(
+            "CREATE TABLE source_stats ("
+            "source_name TEXT PRIMARY KEY, total_runs INTEGER DEFAULT 0, "
+            "success_runs INTEGER DEFAULT 0, failed_runs INTEGER DEFAULT 0, "
+            "total_jobs INTEGER DEFAULT 0, last_success_at TEXT, "
+            "last_failure_at TEXT, last_error TEXT, avg_jobs_per_run REAL DEFAULT 0.0)"
+        )
+        c.commit()
+        added = ensure_columns(c, table="source_stats", columns={
+            "consecutive_failures": "INTEGER DEFAULT 0",
+            "disabled": "INTEGER DEFAULT 0",
+        })
+        assert "consecutive_failures" in added
+        assert "disabled" in added
+
+
 # ── store_jobs ─────────────────────────────────────────────────────────
 
 
