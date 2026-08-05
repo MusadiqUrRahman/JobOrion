@@ -51,6 +51,42 @@ def conn(tmp_path):
             created_at TEXT
         )
     """)
+    c.execute("""
+        CREATE TABLE provider_metrics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider TEXT NOT NULL,
+            run_id TEXT,
+            run_started_at TEXT,
+            found INTEGER DEFAULT 0,
+            stored INTEGER DEFAULT 0,
+            passed INTEGER DEFAULT 0,
+            scored INTEGER DEFAULT 0,
+            applied INTEGER DEFAULT 0,
+            rejected INTEGER DEFAULT 0,
+            errors INTEGER DEFAULT 0,
+            latency_ms INTEGER DEFAULT 0,
+            avg_fit REAL DEFAULT 0.0
+        )
+    """)
+    c.execute("""
+        CREATE TABLE source_stats (
+            source_name TEXT PRIMARY KEY,
+            total_runs INTEGER DEFAULT 0,
+            success_runs INTEGER DEFAULT 0,
+            failed_runs INTEGER DEFAULT 0,
+            total_jobs INTEGER DEFAULT 0,
+            last_success_at TEXT,
+            last_failure_at TEXT,
+            last_error TEXT,
+            avg_jobs_per_run REAL DEFAULT 0.0,
+            consecutive_failures INTEGER DEFAULT 0,
+            disabled INTEGER DEFAULT 0,
+            disabled_at TEXT,
+            total_passed INTEGER DEFAULT 0,
+            total_fit REAL DEFAULT 0.0,
+            avg_fit REAL DEFAULT 0.0
+        )
+    """)
     c.commit()
     yield c
     c.close()
@@ -265,6 +301,34 @@ class TestReflectorRecommendations:
         reflector = Reflector(conn)
         result = reflector.analyze_run("run-012")
         assert len(result["recommendations"]) > 0
+
+
+class TestReflectorSourceMetrics:
+    def test_mentions_source_metrics(self, conn):
+        conn.execute(
+            "INSERT INTO run_log (run_id, goal, status, started_at, error_count) "
+            "VALUES ('run-014', 'search', 'completed', '2026-01-01T00:00:00', 0)"
+        )
+        conn.execute(
+            """INSERT INTO provider_metrics
+               (provider, run_id, found, stored, passed, errors, latency_ms, avg_fit)
+               VALUES ('adzuna', 'run-014', 50, 40, 5, 0, 1200, 7.5),
+                      ('bayt', 'run-014', 0, 0, 0, 3, 3000, 0.0)"""
+        )
+        conn.execute(
+            """INSERT INTO source_stats (source_name, consecutive_failures, disabled)
+               VALUES ('bayt', 3, 1)"""
+        )
+        conn.commit()
+
+        reflection = Reflector(conn).analyze_run("run-014")
+
+        assert "source_metrics" in reflection
+        providers = {m["provider"] for m in reflection["source_metrics"]}
+        assert {"adzuna", "bayt"} <= providers
+        adzuna = next(m for m in reflection["source_metrics"] if m["provider"] == "adzuna")
+        assert adzuna["passed"] == 5
+        assert any("bayt" in rec for rec in reflection["recommendations"])
 
 
 class TestReflectorRating:

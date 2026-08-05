@@ -49,6 +49,7 @@ class Reflector:
             "recommendations": recommendations,
             "scoring_calibration": calibration,
             "cost_analysis": self._cost_analysis(data),
+            "source_metrics": data.get("source_metrics", []),
         }
 
     def _collect_run_data(self, run_id: str) -> dict:
@@ -94,12 +95,38 @@ class Reflector:
             ).fetchall()
             costs = [{"tool": r[0], "cost": r[1]} for r in cost_rows]
 
+        # Get per-provider sourcing metrics (best effort: absent on old schemas)
+        source_metrics = self._collect_source_metrics(run_id)
+
         return {
             "run_id": run_id,
             "run_info": run_info,
             "jobs": jobs,
             "costs": costs,
+            "source_metrics": source_metrics,
         }
+
+    def _collect_source_metrics(self, run_id: str) -> list[dict]:
+        """Per-provider found/passed/error/fit metrics for a run.
+
+        Returns an empty list if the provider_metrics table is unavailable.
+        """
+        try:
+            rows = self._conn.execute(
+                "SELECT provider, found, stored, passed, errors, latency_ms, avg_fit "
+                "FROM provider_metrics WHERE run_id = ? ORDER BY passed DESC",
+                (run_id,),
+            ).fetchall()
+        except Exception:
+            return []
+        return [
+            {
+                "provider": r[0], "found": r[1], "stored": r[2],
+                "passed": r[3], "errors": r[4], "latency_ms": r[5],
+                "avg_fit": r[6],
+            }
+            for r in rows
+        ]
 
     def _analyze_outcomes(self, data: dict) -> dict:
         """Compare planned vs actual outcomes."""
@@ -273,6 +300,13 @@ class Reflector:
         if unreliable:
             sites = [u["site"] for u in unreliable]
             recs.append(f"Consider blocking unreliable sites: {', '.join(sites)}")
+
+        # From source metrics (next-run sourcing recommendations)
+        for metric in data.get("source_metrics", []):
+            if metric["errors"] > 0 and metric["found"] == 0:
+                recs.append(f"Provider {metric['provider']} errored and found nothing — consider disabling it")
+            elif metric["found"] > 0 and metric["passed"] == 0:
+                recs.append(f"Provider {metric['provider']} found {metric['found']} but nothing passed the gate — deprioritize it")
 
         if not recs:
             recs.append("Run looks healthy — no immediate changes needed")

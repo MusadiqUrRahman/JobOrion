@@ -889,6 +889,15 @@ def print_reflection_card(result: dict, ref_id: str) -> None:
         for item in result["what_failed"][:3]:
             content.append(f"    {BULLET} {item}\n", style="bright_red")
 
+    if result.get("source_metrics"):
+        content.append("\n  📡 Sources\n", style="bold bright_magenta")
+        for metric in result["source_metrics"][:4]:
+            content.append(
+                f"    {BULLET} {metric['provider']}: {metric['found']} found, "
+                f"{metric['passed']} passed, {metric['errors']} errors\n",
+                style="bright_white",
+            )
+
     if result.get("recommendations"):
         content.append("\n  💡 Recommendations\n", style="bold bright_cyan")
         for i, rec in enumerate(result["recommendations"][:3], 1):

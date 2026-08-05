@@ -390,7 +390,7 @@ Each task = one purpose, one test, exact files. `✓` = check off at completion.
 - `joborion feedback <url> like|dislike` → `user_feedback` → weights in relevance gate
 - Test: `test_learning.py::test_feedback_weights_title_terms`
 
-**D6. Wire reflection (Phase 4) into sourcing**
+**D6. Wire reflection (Phase 4) into sourcing** ✓
 - Files: `src/joborion/agent/reflector.py`
 - Reflection report includes source metrics + next-run recommendations
 - Test: `test_reflector.py::test_mentions_source_metrics`
