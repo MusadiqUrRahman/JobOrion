@@ -287,38 +287,38 @@ Each task = one purpose, one test, exact files. `✓` = check off at completion.
 
 ### Phase B — Unified Provider Architecture + Source Expansion
 
-**B1. Provider base + RawJob schema**
+**B1. Provider base + RawJob schema** ✓
 - Files: `src/joborion/sources/base.py` (NEW)
 - `RawJob` dataclass (normalized fields), `JobProvider` protocol, `ProviderResult`
 - Test: `test_sources_base.py::TestRawJob::test_normalizes_fields`
 
-**B2. sources.yaml config + registry**
+**B2. sources.yaml config + registry** ✓
 - Files: `src/joborion/config/sources.yaml` (NEW), `src/joborion/sources/registry.py` (NEW)
 - Enable/disable, API-key env refs, per-provider result caps, reliability ordering
 - Test: `test_registry.py::TestRegistry::test_disabled_provider_skipped`
 
-**B3. Wrap existing JobSpy + Workday as providers**
+**B3. Wrap existing JobSpy + Workday as providers** ✓
 - Files: `src/joborion/sources/jobspy_provider.py`, `src/joborion/sources/workday_provider.py` (NEW)
 - Pass arrangement/job_types/locations into jobspy kwargs (`is_remote`, `job_type`, `country_indeed`); Workday employer list filtered by `companies.yaml` + industries
 - Test: `test_sources_jobspy.py::test_remote_only_kwargs` (mock scrape_jobs)
 
-**B4. Adzuna provider**
+**B4. Adzuna provider** ✓
 - Files: `src/joborion/sources/adzuna_provider.py` (NEW)
 - `api.adzuna.com/v1/api/jobs/{country}/search` with `what`, `location0`, `full_time`, `salary_min`, `contract_type` params; maps to RawJob; cost/rate aware
 - Test: `test_adzuna_provider.py::test_parses_response` (mock httpx)
 
-**B5. Remote boards provider**
+**B5. Remote boards provider** ✓
 - Files: `src/joborion/sources/remote_boards.py` (NEW)
 - Remotive `/api/remote-jobs`, RemoteOK `/api`, WeWorkRemotely RSS (feedparser), Jobicy `/api/v2/remote-jobs`, Arbeitnow, HN Who-is-Hiring (Algolia `search_by_date`, HN Algolia on story 35288000 etc.)
 - Test: `test_remote_boards.py::test_remotive_parses` + per-source param tests
 
-**B6. ATS boards provider**
+**B6. ATS boards provider** ✓
 - Files: `src/joborion/sources/ats_boards.py` (NEW), `src/joborion/config/companies.yaml` (NEW)
 - Greenhouse `boards-api.greenhouse.io/v1/boards/{company}/jobs`, Lever `api.lever.co/v0/postings/{company}?mode=json`, Ashby `api.ashbyhq.com/posting-api/job-board/{org}`, SmartRecruiters `api.smartrecruiters.com/v1/companies/{company}/postings`
 - 100+ curated companies with platform mapping; industry/region filters from prefs
 - Test: `test_ats_boards.py::TestGreenhouse::test_parses_postings`
 
-**B7. Wire providers into `pipeline.py` search stage**
+**B7. Wire providers into `pipeline.py` search stage** ✓
 - Files: `src/joborion/pipeline.py`, `src/joborion/sources/registry.py`
 - Run providers in reliability order, cap results per provider, record metrics
 - Test: `test_pipeline.py::test_search_runs_all_enabled_providers` (mock providers)
