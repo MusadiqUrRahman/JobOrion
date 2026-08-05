@@ -1,0 +1,58 @@
+# JobOrion source provider registry
+#
+# Controls which discovery providers run, in what order, and how many results
+# each is allowed to contribute. Providers are executed in ascending priority
+# (lowest first). Keep the most reliable/cheapest providers at the top so they
+# fill the pool before slower ones add variety.
+#
+# Per-provider options are provider-specific and documented below each entry.
+
+providers:
+  # JobSpy scrape: Indeed, LinkedIn, ZipRecruiter, Glassdoor, Bayt, Google
+  # Reliability: high. Cost: free (HTML scraping).
+  jobspy:
+    enabled: true
+    priority: 10
+    sites: [indeed, linkedin, zip_recruiter]
+    results_per_site: 50
+    hours_old: 168
+
+  # Workday ATS portals: employer career sites via the CXS JSON API.
+  # Reliability: medium (employers change API shape). Cost: free.
+  workday:
+    enabled: true
+    priority: 20
+    employers: config/employers.yaml
+    workers: 1
+
+  # Adzuna API: aggregated board with rich salary data.
+  # Reliability: high. Cost: free tier (1k requests/day) with an API key.
+  # Requires ADZUNA_APP_ID + ADZUNA_APP_KEY in ~/.joborion/.env.
+  adzuna:
+    enabled: false
+    priority: 30
+    app_id_env: ADZUNA_APP_ID
+    app_key_env: ADZUNA_APP_KEY
+    countries: [gb, us, de]
+    results_per_query: 50
+
+  # Remote-specific boards: Remotive, RemoteOK, WeWorkRemotely, Jobicy,
+  # Arbeitnow, Hacker News Who is Hiring.
+  # Reliability: medium. Cost: free (public JSON feeds, no keys).
+  remote_boards:
+    enabled: true
+    priority: 40
+    sources: [remotive, remoteok, wwr, jobicy, arbeitnow, hn]
+
+  # ATS boards: Greenhouse, Lever, Ashby, SmartRecruiters public job feeds.
+  # Reliability: medium-high. Cost: free (public JSON APIs).
+  ats_boards:
+    enabled: true
+    priority: 50
+    platforms: [greenhouse, lever, ashby, smartrecruiters]
+
+  # AI-site aggregation boards (jobs listed across many ATS portals).
+  # Reliability: low. Cost: free.
+  ai_sites:
+    enabled: true
+    priority: 60
