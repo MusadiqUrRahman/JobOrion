@@ -133,9 +133,9 @@ joborion run --help  # shows --goal
 
 ## Phase 3 is complete when:
 
-- [ ] Planner parses goals into ordered steps
-- [ ] ContextManager tracks and compresses actions
-- [ ] Orchestrator executes plans with budget enforcement
-- [ ] CLI has `plan` command and `--goal` flag
-- [ ] Pipeline stages renamed: Search, Details, Evaluate, Tailor, Letter, Export
-- [ ] 21+ tests pass, ruff clean
+- [x] Planner parses goals into ordered steps
+- [x] ContextManager tracks and compresses actions
+- [x] Orchestrator executes plans with budget enforcement
+- [x] CLI has `plan` command and `--goal` flag
+- [x] Pipeline stages renamed: Search, Details, Evaluate, Tailor, Letter, Export
+- [x] 21+ tests pass, ruff clean

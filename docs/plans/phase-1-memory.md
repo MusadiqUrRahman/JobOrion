@@ -145,9 +145,9 @@ ruff check src/
 
 ## Phase 1 is complete when:
 
-- [ ] site_memory table + 5 functions work
-- [ ] run_log table + 3 functions work
-- [ ] cost_ledger table + 3 functions work
-- [ ] Budget enforcement in llm.py works
-- [ ] Memory-aware routing in pipeline.py works
-- [ ] 12+ tests pass, ruff clean
+- [x] site_memory table + 5 functions work
+- [x] run_log table + 3 functions work
+- [x] cost_ledger table + 3 functions work
+- [x] Budget enforcement in llm.py works
+- [x] Memory-aware routing in pipeline.py works
+- [x] 12+ tests pass, ruff clean
