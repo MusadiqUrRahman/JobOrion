@@ -104,8 +104,8 @@ def conn(tmp_path):
 | 1 | Memory (site_memory, run_log, cost_ledger) | 0 | COMPLETE |
 | 2 | Tools (pipeline stages as composable tools) | 0 | COMPLETE |
 | 3 | Orchestrator (agent decides what to do) | 1, 2 | COMPLETE |
-| 4 | Reflection (learn from outcomes) | 1, 3 | IN PROGRESS |
-| 5 | Full Autonomy (goal-driven operation) | 1-4 | NOT STARTED |
+| 4 | Reflection (learn from outcomes) | 1, 3 | COMPLETE |
+| 5 | Full Autonomy (goal-driven operation) | 1-4 | COMPLETE |
 
 ## File Naming
 
