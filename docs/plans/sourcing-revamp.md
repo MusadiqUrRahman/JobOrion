@@ -430,6 +430,7 @@ Each task = one purpose, one test, exact files. `✓` = check off at completion.
 **F3. Notification/report** — rich summary + optional email digest
 - [x] Done (`src/joborion/notifier.py`: `load_notify_config`/`build_digest`/`digest_from_stats`/`send_digest`; `joborion notify` CLI with `--to`/`--goal`; 10 tests in `tests/test_notifier.py`)
 **F4. Personalization dashboard** — HTML report of matched jobs by provider
+- [x] Done (`dashboard.py`: `group_by_provider` helper + "Matched Jobs by Provider" section in `generate_dashboard` (scored, non-expired jobs, HTML-escaped, per-provider tables); 6 tests in `tests/test_dashboard.py`; integration test tool count 13→14)
 
 ---
 

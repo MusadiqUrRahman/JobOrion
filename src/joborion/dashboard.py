@@ -21,6 +21,26 @@ from joborion.database import get_connection
 
 console = Console()
 
+_MATCHED_SELECT = (
+    "SELECT url, title, company, source_provider, site, fit_score, salary, "
+    "is_remote, apply_url_direct FROM jobs "
+    "WHERE fit_score IS NOT NULL "
+    "AND COALESCE(apply_status, '') NOT IN ('expired', 'manual') "
+    "ORDER BY fit_score DESC"
+)
+
+
+def group_by_provider(jobs: list[dict]) -> list[dict]:
+    """Group jobs by provider, largest group first."""
+    groups: dict[str, list[dict]] = {}
+    for job in jobs:
+        provider = job.get("source_provider") or job.get("site") or "unknown"
+        groups.setdefault(provider, []).append(job)
+    return [
+        {"provider": name, "count": len(items), "jobs": items}
+        for name, items in sorted(groups.items(), key=lambda kv: len(kv[1]), reverse=True)
+    ]
+
 
 def generate_dashboard(output_path: str | None = None) -> str:
     """Generate an HTML dashboard of all jobs with fit scores.
@@ -80,6 +100,28 @@ def generate_dashboard(output_path: str | None = None) -> str:
         WHERE fit_score >= 5
         ORDER BY fit_score DESC, site, title
     """).fetchall()
+
+    # Matched jobs (any score, not expired) grouped by sourcing provider
+    matched = conn.execute(_MATCHED_SELECT).fetchall()
+    provider_sections = ""
+    if matched:
+        for group in group_by_provider([dict(r) for r in matched]):
+            rows = "".join(
+                f"<tr><td><a href='{escape(j['apply_url_direct'] or j['url'] or '')}' "
+                f"target='_blank'>{escape(j['title'] or 'Untitled')}</a></td>"
+                f"<td>{escape(j['company'] or '?')}</td>"
+                f"<td class='score-cell'>{j['fit_score']}</td>"
+                f"<td>{escape(j['salary'] or '')}</td>"
+                f"<td>{'yes' if j['is_remote'] else ''}</td></tr>"
+                for j in group["jobs"]
+            )
+            provider_sections += (
+                f"<div class='provider-section' data-provider='{escape(group['provider'])}'>"
+                f"<h4>{escape(group['provider'])} "
+                f"<span class='provider-count'>{group['count']}</span></h4>"
+                f"<table class='provider-table'><tr><th>Title</th><th>Company</th>"
+                f"<th>Score</th><th>Salary</th><th>Remote</th></tr>{rows}</table></div>"
+            )
 
     # Color map per site
     colors = {
@@ -290,6 +332,20 @@ def generate_dashboard(output_path: str | None = None) -> str:
   .hidden {{ display: none !important; }}
   .job-count {{ color: #94a3b8; font-size: 0.85rem; margin-bottom: 1rem; }}
 
+  /* Matched jobs by provider */
+  .provider-section-container {{ background: #1e293b; border-radius: 12px; padding: 1.5rem; margin-bottom: 2.5rem; }}
+  .provider-section-container h3 {{ font-size: 1rem; margin-bottom: 1rem; color: #94a3b8; }}
+  .provider-section {{ margin-bottom: 1.25rem; }}
+  .provider-section h4 {{ font-size: 0.95rem; margin-bottom: 0.5rem; color: #60a5fa; }}
+  .provider-count {{ background: #60a5fa22; color: #60a5fa; border-radius: 999px; padding: 0.1rem 0.5rem; font-size: 0.75rem; }}
+  .provider-table {{ width: 100%; border-collapse: collapse; font-size: 0.8rem; }}
+  .provider-table th {{ text-align: left; color: #94a3b8; border-bottom: 1px solid #334155; padding: 0.3rem 0.5rem; font-weight: 600; }}
+  .provider-table td {{ padding: 0.3rem 0.5rem; border-bottom: 1px solid #1e293b; }}
+  .provider-table a {{ color: #e2e8f0; text-decoration: none; }}
+  .provider-table a:hover {{ color: #60a5fa; }}
+  .score-cell {{ font-weight: 700; color: #10b981; }}
+  .dim {{ color: #64748b; font-size: 0.85rem; }}
+
   @media (max-width: 768px) {{
     .summary {{ grid-template-columns: repeat(2, 1fr); }}
     .score-section {{ grid-template-columns: 1fr; }}
@@ -329,6 +385,11 @@ def generate_dashboard(output_path: str | None = None) -> str:
     <h3>By Source</h3>
     {site_rows}
   </div>
+</div>
+
+<div class="provider-section-container">
+  <h3>Matched Jobs by Provider</h3>
+  {provider_sections if provider_sections else '<p class="dim">No matched jobs yet.</p>'}
 </div>
 
 <div id="job-count" class="job-count"></div>

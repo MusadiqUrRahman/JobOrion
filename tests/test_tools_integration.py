@@ -351,7 +351,7 @@ class TestRegistryIntegration:
     def test_tool_descriptions_valid(self):
         registry = build_default_registry()
         descs = registry.get_tool_descriptions()
-        assert len(descs) == 13
+        assert len(descs) == 14
         for desc in descs:
             assert "name" in desc
             assert "description" in desc
