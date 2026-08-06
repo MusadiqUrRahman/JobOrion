@@ -1,5 +1,7 @@
 """Tests for joborion.sources.base — RawJob schema and shared storage."""
 
+import time
+
 import pytest
 
 from joborion.database import init_db, close_connection
@@ -94,3 +96,61 @@ class TestProviderResult:
         assert r.stored == 0
         assert r.errors == 0
         assert r.error is None
+
+
+class TestRateLimiter:
+    def test_rate_limit_respected(self):
+        from joborion.sources.base import RateLimiter
+
+        limiter = RateLimiter(min_interval=0.1)
+        t0 = time.monotonic()
+        limiter.wait()
+        limiter.wait()
+        limiter.wait()
+        assert time.monotonic() - t0 >= 0.2
+
+    def test_zero_interval_is_noop(self):
+        from joborion.sources.base import RateLimiter
+
+        limiter = RateLimiter(min_interval=0)
+        t0 = time.monotonic()
+        for _ in range(3):
+            limiter.wait()
+        assert time.monotonic() - t0 < 0.05
+
+
+class TestRegistryPacing:
+    def test_injects_rate_limiter_into_intent(self):
+        from joborion.sources.registry import run_providers
+
+        captured = {}
+
+        class PacedProvider:
+            name = "paced"
+            cfg = {"min_request_interval": 0.01}
+
+            def search(self, intent):
+                captured["limiter"] = intent.get("rate_limiter")
+                return ProviderResult(provider=self.name)
+
+        run_providers({}, providers=[PacedProvider()])
+        assert captured["limiter"] is not None
+
+    def test_provider_calls_limiter_wait(self):
+        from joborion.sources.registry import run_providers
+
+        calls = []
+
+        class PacedProvider:
+            name = "paced"
+            cfg = {}
+
+            def search(self, intent):
+                limiter = intent.get("rate_limiter")
+                if limiter is not None:
+                    limiter.wait()
+                calls.append(len(calls))
+                return ProviderResult(provider=self.name)
+
+        run_providers({}, providers=[PacedProvider()])
+        assert calls == [0]

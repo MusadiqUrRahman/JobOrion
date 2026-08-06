@@ -350,6 +350,7 @@ class RemoteBoardsProvider:
 
         jobs: list[RawJob] = []
         errors = 0
+        limiter = (intent or {}).get("rate_limiter")
         with httpx.Client(timeout=_HTTP_TIMEOUT, headers=_HEADERS, follow_redirects=True,
                           proxy=proxy_http_url(resolve_proxy(self.cfg))) as client:
             for source in sources:
@@ -358,6 +359,8 @@ class RemoteBoardsProvider:
                 if len(jobs) >= max_results:
                     break
                 try:
+                    if limiter is not None:
+                        limiter.wait()
                     parsed = _run_source(source, client, term)
                     if source == "hn":
                         parsed = parsed[:hn_limit]

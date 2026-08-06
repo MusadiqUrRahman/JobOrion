@@ -419,6 +419,7 @@ Each task = one purpose, one test, exact files. `✓` = check off at completion.
 - Files: `src/joborion/sources/base.py`
 - Per-provider delay/backoff via tenacity; avoid hammering boards
 - Test: `test_sources_base.py::test_rate_limit_respected`
+- [x] Done (delay via `RateLimiter`; retry/backoff via jobspy's existing `_scrape_with_retry`)
 
 ### Phase F — Full Autonomy (optional stretch)
 

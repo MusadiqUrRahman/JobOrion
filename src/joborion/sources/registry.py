@@ -16,7 +16,7 @@ import yaml
 
 from joborion import config
 from joborion.llm import estimate_call_cost
-from joborion.sources.base import JobProvider, ProviderResult
+from joborion.sources.base import JobProvider, ProviderResult, RateLimiter
 
 log = logging.getLogger(__name__)
 
@@ -25,6 +25,8 @@ log = logging.getLogger(__name__)
 LLM_JOB_TOKENS_IN = 3000
 LLM_JOB_TOKENS_OUT = 300
 DEFAULT_EST_JOBS = 10
+#: Minimum seconds between provider starts (polite crawling default).
+DEFAULT_MIN_INTERVAL = 0.25
 
 # Provider name -> (module path, class name). Kept as strings so imports are
 # lazy: a missing provider module is skipped, not fatal.
@@ -205,12 +207,20 @@ def run_providers(
     for provider in providers:
         name = getattr(provider, "name", "unknown")
         start = perf_counter()
-        provider_intent = intent
+        cfg = getattr(provider, "cfg", {}) or {}
+        interval = float(
+            cfg.get("min_request_interval")
+            or intent.get("min_request_interval")
+            or DEFAULT_MIN_INTERVAL
+        )
+        limiter = RateLimiter(min_interval=interval)
+        provider_intent = {**intent, "rate_limiter": limiter}
         cap = (caps or {}).get(name, 0)
         if cap:
             limits = dict(intent.get("provider_limits") or {})
             limits[name] = cap
-            provider_intent = {**intent, "provider_limits": limits}
+            provider_intent["provider_limits"] = limits
+        limiter.wait()  # space provider starts
         try:
             result = provider.search(provider_intent)
             if not isinstance(result, ProviderResult):

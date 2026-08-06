@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Protocol, runtime_checkable
@@ -21,6 +22,29 @@ REMOTE_HINTS = ("remote", "anywhere", "work from home", "wfh", "distributed", "v
 
 #: Env var that opts every source provider into a shared proxy.
 PROXY_ENV = "JOBSPY_PROXY"
+
+
+class RateLimiter:
+    """Inter-request throttle so crawlers stay polite to job boards.
+
+    ``wait()`` blocks until at least ``min_interval`` seconds have passed since
+    the previous call. A zero interval is a no-op (unlimited). The registry
+    injects one into the search intent so per-request providers can pace
+    themselves without knowing the configured rate.
+    """
+
+    def __init__(self, min_interval: float = 0.0):
+        self.min_interval = float(min_interval)
+        self._last = 0.0
+
+    def wait(self) -> None:
+        if self.min_interval <= 0:
+            return
+        now = time.monotonic()
+        wait_for = self.min_interval - (now - self._last)
+        if wait_for > 0:
+            time.sleep(wait_for)
+        self._last = time.monotonic()
 
 
 def resolve_proxy(cfg: dict | None = None) -> str | None:

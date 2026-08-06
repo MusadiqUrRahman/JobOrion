@@ -284,6 +284,7 @@ class AtsBoardsProvider:
         jobs: list[RawJob] = []
         attempted: list[str] = []
         errors = 0
+        limiter = (intent or {}).get("rate_limiter")
         for company in companies:
             platform = company.get("platform")
             slug = company.get("slug")
@@ -294,6 +295,8 @@ class AtsBoardsProvider:
                 note_company_run(conn, self.name, company_key)
                 continue
             try:
+                if limiter is not None:
+                    limiter.wait()
                 payload = _fetch(platform, slug, None, proxy_http_url(resolve_proxy(self.cfg)))
                 parsed = _parse(platform, company, payload)
             except Exception as exc:
