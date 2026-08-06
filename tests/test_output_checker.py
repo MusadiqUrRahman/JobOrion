@@ -1,6 +1,5 @@
 """Tests for joborion.scoring.output_checker — validation logic."""
 
-import pytest
 from joborion.scoring.output_checker import (
     BANNED_WORDS,
     FABRICATION_WATCHLIST,

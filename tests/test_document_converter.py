@@ -1,6 +1,5 @@
 """Tests for joborion.scoring.document_converter — resume parsing and HTML generation."""
 
-import pytest
 from joborion.scoring.document_converter import (
     parse_resume,
     parse_skills,

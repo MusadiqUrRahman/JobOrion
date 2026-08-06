@@ -1,12 +1,10 @@
 """Tests for joborion.memory — site_memory, run_log, cost_ledger, budget enforcement."""
 
 import os
-import sqlite3
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 from joborion.database import (
-    get_connection,
     close_connection,
     init_db,
     # Site memory
@@ -217,7 +215,6 @@ class TestRunLog:
 
     def test_get_recent_runs(self, conn):
         """Returns runs in reverse chronological order."""
-        id1 = start_run(goal="first", conn=conn)
         id2 = start_run(goal="second", conn=conn)
         id3 = start_run(goal="third", conn=conn)
 

@@ -1,7 +1,5 @@
 """Tests for joborion.agent.tools, registry, and concrete tool implementations."""
 
-import sqlite3
-from unittest.mock import patch, MagicMock
 
 import pytest
 from joborion.agent.tools import Tool, ActionResult

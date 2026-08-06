@@ -1,6 +1,5 @@
 """Tests for the eligibility engine (profile-driven, any country)."""
 
-import pytest
 
 from joborion.eligibility import (
     REASON_COUNTRY_RESTRICTED,
