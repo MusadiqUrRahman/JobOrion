@@ -426,6 +426,7 @@ Each task = one purpose, one test, exact files. `✓` = check off at completion.
 **F1. Scheduled runs** — `joborion daemon` / `--schedule daily` (apscheduler)
 - [x] Done (`src/joborion/scheduler.py`: `interval_to_trigger` + `ScheduledRunner`; `run --schedule` and `daemon` CLI with `--interval`/`--at`; 14 tests in `tests/test_scheduler.py`)
 **F2. Goal-driven search** — wire new providers into existing Orchestrator tools
+- [x] Done (`SearchProvidersTool` in `tools/discovery.py` calls `run_providers`; registered in default registry; planner emits `search_providers` step for goals mentioning providers/all sources; 6 tests in `tests/test_search_providers_tool.py`)
 **F3. Notification/report** — rich summary + optional email digest
 **F4. Personalization dashboard** — HTML report of matched jobs by provider
 

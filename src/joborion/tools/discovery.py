@@ -117,3 +117,63 @@ class ScrapeAISitesTool(Tool):
                 duration_ms=elapsed_ms,
                 error=str(e),
             )
+
+
+class SearchProvidersTool(Tool):
+    """Search across all configured sourcing providers in a single pass."""
+
+    name = "search_providers"
+    description = "Search all configured job sources (JobSpy boards, Adzuna, remote boards, ATS platforms, Workday) in one pass."
+    parameters = {
+        "query": {"type": "string", "description": "Job search query"},
+        "remote": {"type": "boolean", "description": "Remote jobs only", "default": False},
+        "min_salary": {"type": "integer", "description": "Minimum annual salary in USD", "default": None},
+        "max_results": {"type": "integer", "description": "Per-provider result cap", "default": 25},
+    }
+
+    def execute(self, **params) -> ActionResult:
+        t0 = time.time()
+        try:
+            from joborion.sources.registry import run_providers
+            intent = {
+                "query": params.get("query", ""),
+                "keywords": (params.get("query") or "").split(),
+                "remote_only": bool(params.get("remote", False)),
+                "min_salary": params.get("min_salary"),
+                "max_results": int(params.get("max_results") or 0),
+                "locations": ["worldwide"],
+                "job_types": ["all"],
+                "seniority": [],
+                "sponsorship_ok": True,
+            }
+            results = run_providers(intent)
+            elapsed_ms = int((time.time() - t0) * 1000)
+            ok_results = [r for r in results if r.ok()]
+            return ActionResult(
+                action=self.name,
+                status="ok",
+                details={
+                    "providers_run": len(results),
+                    "providers_ok": len(ok_results),
+                    "found": sum(r.found for r in results),
+                    "stored": sum(r.stored for r in results),
+                    "errors": sum(r.errors for r in results),
+                    "by_provider": [
+                        {"provider": r.provider, "found": r.found, "stored": r.stored}
+                        for r in ok_results
+                    ],
+                },
+                cost=0.0,
+                duration_ms=elapsed_ms,
+                error=None,
+            )
+        except Exception as e:
+            elapsed_ms = int((time.time() - t0) * 1000)
+            return ActionResult(
+                action=self.name,
+                status="error",
+                details={},
+                cost=0.0,
+                duration_ms=elapsed_ms,
+                error=str(e),
+            )

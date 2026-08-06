@@ -95,10 +95,11 @@ def build_default_registry() -> ToolRegistry:
     registry = ToolRegistry()
 
     # Discovery tools
-    from joborion.tools.discovery import ScrapeJobSpyTool, ScrapeWorkdayTool, ScrapeAISitesTool
+    from joborion.tools.discovery import ScrapeJobSpyTool, ScrapeWorkdayTool, ScrapeAISitesTool, SearchProvidersTool
     registry.register(ScrapeJobSpyTool())
     registry.register(ScrapeWorkdayTool())
     registry.register(ScrapeAISitesTool())
+    registry.register(SearchProvidersTool())
 
     # Enrichment tools
     from joborion.tools.enrichment import EnrichSingleJobTool, EnrichBatchTool

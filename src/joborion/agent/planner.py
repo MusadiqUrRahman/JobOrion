@@ -60,6 +60,7 @@ class Plan:
 # Keyword-to-tool mapping for goal parsing
 _GOAL_KEYWORDS: dict[str, list[str]] = {
     "search": ["find", "search", "discover", "scrape", "jobs"],
+    "providers": ["providers", "all sources", "multi-source"],
     "details": ["enrich", "detail", "description", "apply url"],
     "evaluate": ["score", "rating", "fit", "rank"],
     "tailor": ["tailor", "resume", "customize"],
@@ -73,6 +74,9 @@ _STAGE_TOOLS: dict[str, list[tuple[str, dict, str, float, int]]] = {
         ("search_jobspy", {}, "Search job boards via JobSpy", 0.0, 30000),
         ("search_workday", {}, "Search corporate career sites", 0.0, 20000),
         ("search_ai_sites", {}, "AI-powered site scraping", 0.0, 15000),
+    ],
+    "providers": [
+        ("search_providers", {"max_results": 25}, "Search all configured job sources", 0.0, 60000),
     ],
     "details": [
         ("fetch_details", {"limit": 100}, "Fetch full job descriptions", 0.0, 45000),
@@ -96,6 +100,7 @@ _KNOWN_TOOLS: list[dict[str, str]] = [
     {"name": "search_jobspy", "description": "Search job boards via JobSpy (LinkedIn, Indeed, etc.)", "params": "search_query (optional), limit (optional)"},
     {"name": "search_workday", "description": "Search corporate career sites (Workday)", "params": "search_query (optional), limit (optional)"},
     {"name": "search_ai_sites", "description": "AI-powered scraping of career pages", "params": "search_query (optional), limit (optional)"},
+    {"name": "search_providers", "description": "Search all configured job sources in one pass", "params": "query (optional), remote (optional), min_salary (optional), max_results (optional)"},
     {"name": "fetch_details", "description": "Enrich jobs with full descriptions from career pages", "params": "url (optional), limit (optional)"},
     {"name": "enrich_single", "description": "Enrich a single job by URL with full description", "params": "url (required)"},
     {"name": "enrich_batch", "description": "Enrich multiple jobs with full descriptions", "params": "limit (optional)"},
@@ -300,7 +305,7 @@ class Planner:
             detected = ["search", "details", "evaluate"]
 
         # Ensure stages are in pipeline order
-        stage_order = ["search", "details", "evaluate", "tailor", "letter", "export"]
+        stage_order = ["search", "providers", "details", "evaluate", "tailor", "letter", "export"]
         detected = [s for s in stage_order if s in detected]
 
         return detected
@@ -321,6 +326,10 @@ class Planner:
                     query = self._extract_query(goal_lower)
                     if query:
                         final_params["search_query"] = query
+                elif stage == "providers":
+                    query = self._extract_query(goal_lower)
+                    if query:
+                        final_params["query"] = query
                 elif stage in ("tailor", "letter"):
                     # Check for min_score in goal
                     final_params["min_score"] = self._extract_min_score(goal_lower)
