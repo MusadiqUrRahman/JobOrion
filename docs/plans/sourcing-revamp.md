@@ -424,6 +424,7 @@ Each task = one purpose, one test, exact files. `✓` = check off at completion.
 ### Phase F — Full Autonomy (optional stretch)
 
 **F1. Scheduled runs** — `joborion daemon` / `--schedule daily` (apscheduler)
+- [x] Done (`src/joborion/scheduler.py`: `interval_to_trigger` + `ScheduledRunner`; `run --schedule` and `daemon` CLI with `--interval`/`--at`; 14 tests in `tests/test_scheduler.py`)
 **F2. Goal-driven search** — wire new providers into existing Orchestrator tools
 **F3. Notification/report** — rich summary + optional email digest
 **F4. Personalization dashboard** — HTML report of matched jobs by provider

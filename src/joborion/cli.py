@@ -326,6 +326,9 @@ def run(
     min_salary: Optional[int] = typer.Option(
         None, "--min-salary", help="Minimum annual salary in USD.",
     ),
+    schedule: Optional[str] = typer.Option(
+        None, "--schedule", help="Repeat pipeline on a schedule: hourly, daily, weekly.",
+    ),
 ) -> None:
     """Run pipeline stages: search, details, evaluate, tailor, letter, export."""
     print_startup_screen()
@@ -445,6 +448,61 @@ def run(
 
     if result.get("errors"):
         raise typer.Exit(code=1)
+
+    if schedule is not None:
+        _run_scheduled(stage_list, schedule, None)
+
+
+@app.command()
+def daemon(
+    stages: Optional[list[str]] = typer.Argument(
+        None,
+        help=f"Pipeline stages: {', '.join(VALID_STAGES)}, all",
+    ),
+    interval: str = typer.Option("daily", "--interval", help="Repeat interval: hourly, daily, weekly."),
+    at: Optional[str] = typer.Option(None, "--at", help="Daily start time in HH:MM (24h)."),
+) -> None:
+    """Run the pipeline on a repeating schedule and keep running."""
+    print_startup_screen()
+    _bootstrap()
+    stage_list = stages if stages else ["all"]
+    _run_scheduled(stage_list, interval, at)
+
+
+def _run_scheduled(stages: list[str], interval: str, at: str | None) -> None:
+    """Register the pipeline on a schedule and block until interrupted."""
+    from joborion.scheduler import ScheduledRunner
+
+    try:
+        runner = ScheduledRunner(interval=interval, at=at)
+    except ValueError as e:
+        print_error(str(e))
+        raise typer.Exit(code=1)
+
+    def _job() -> None:
+        from joborion.pipeline import run_pipeline
+        run_pipeline(stages=stages)
+
+    runner.add_job(_job, job_id="pipeline")
+    runner.start()
+
+    console.print(make_gradient_panel(
+        f"[bold bright_cyan]Scheduled run registered:[/bold bright_cyan] every "
+        f"[bold bright_white]{interval}[/bold bright_white]"
+        + (f" at [bold bright_white]{at}[/bold bright_white]" if at else "")
+        + " — press Ctrl+C to stop",
+        title="[bold bright_green]📅 Daemon[/bold bright_green]",
+        border_style="bright_green",
+        padding=(1, 2),
+    ))
+
+    try:
+        while True:
+            import time
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        runner.shutdown()
+        raise typer.Exit(0)
 
 
 @app.command()
