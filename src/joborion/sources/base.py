@@ -9,6 +9,7 @@ insert path so all providers behave identically.
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -17,6 +18,35 @@ from typing import Protocol, runtime_checkable
 log = logging.getLogger(__name__)
 
 REMOTE_HINTS = ("remote", "anywhere", "work from home", "wfh", "distributed", "virtual", "telecommute")
+
+#: Env var that opts every source provider into a shared proxy.
+PROXY_ENV = "JOBSPY_PROXY"
+
+
+def resolve_proxy(cfg: dict | None = None) -> str | None:
+    """Proxy string for this provider: env wins, else per-provider config."""
+    env = os.environ.get(PROXY_ENV, "").strip()
+    if env:
+        return env
+    proxy = (cfg or {}).get("proxy")
+    return str(proxy).strip() if proxy else None
+
+
+def proxy_http_url(proxy: str | None) -> str | None:
+    """Convert a host:port[:user:pass] proxy string to an httpx http URL."""
+    if not proxy:
+        return None
+    proxy = proxy.strip()
+    if proxy.startswith(("http://", "https://")):
+        return proxy
+    parts = proxy.split(":")
+    if len(parts) == 2:
+        host, port = parts
+        return f"http://{host}:{port}"
+    if len(parts) == 4:
+        host, port, user, passwd = parts
+        return f"http://{user}:{passwd}@{host}:{port}"
+    return None
 
 
 def looks_remote(location: str, description: str = "") -> bool:

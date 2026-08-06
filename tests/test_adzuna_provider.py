@@ -59,7 +59,9 @@ class TestAdzunaProvider:
         monkeypatch.setattr(
             "joborion.sources.adzuna_provider.get_connection", lambda db_path=None: conn
         )
-        monkeypatch.setattr("joborion.sources.adzuna_provider._fetch", lambda url, params: PAYLOAD)
+        monkeypatch.setattr(
+            "joborion.sources.adzuna_provider._fetch", lambda url, params, proxy=None: PAYLOAD
+        )
 
         provider = AdzunaProvider({})
         result = provider.search({"locations": ["london"]})
@@ -81,7 +83,7 @@ class TestAdzunaProvider:
         monkeypatch.setattr("joborion.sources.adzuna_provider.load_env", lambda: None)
         calls = []
 
-        def fake_fetch(url, params):
+        def fake_fetch(url, params, proxy=None):
             calls.append((url, params))
             return PAYLOAD
 
@@ -98,7 +100,7 @@ class TestAdzunaProvider:
         _set_creds(monkeypatch)
         captured = {}
 
-        def fake_fetch(url, params):
+        def fake_fetch(url, params, proxy=None):
             captured["url"] = url
             captured["params"] = params
             return {"results": []}
@@ -123,7 +125,7 @@ class TestAdzunaProvider:
     def test_network_error_counts(self, monkeypatch):
         _set_creds(monkeypatch)
 
-        def boom(url, params):
+        def boom(url, params, proxy=None):
             raise RuntimeError("boom")
 
         monkeypatch.setattr("joborion.sources.adzuna_provider._fetch", boom)

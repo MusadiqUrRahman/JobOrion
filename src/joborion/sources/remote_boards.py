@@ -16,7 +16,7 @@ import httpx
 
 from joborion.config import load_search_config
 from joborion.database import get_connection
-from joborion.sources.base import ProviderResult, RawJob, store_raw_jobs
+from joborion.sources.base import ProviderResult, RawJob, proxy_http_url, resolve_proxy, store_raw_jobs
 
 log = logging.getLogger(__name__)
 
@@ -350,7 +350,8 @@ class RemoteBoardsProvider:
 
         jobs: list[RawJob] = []
         errors = 0
-        with httpx.Client(timeout=_HTTP_TIMEOUT, headers=_HEADERS, follow_redirects=True) as client:
+        with httpx.Client(timeout=_HTTP_TIMEOUT, headers=_HEADERS, follow_redirects=True,
+                          proxy=proxy_http_url(resolve_proxy(self.cfg))) as client:
             for source in sources:
                 if source not in _SOURCE_NAMES:
                     continue

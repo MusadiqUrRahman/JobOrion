@@ -285,7 +285,7 @@ class TestAtsBoards:
                 }
             ]
         }
-        monkeypatch.setattr("joborion.sources.ats_boards._fetch_greenhouse", lambda slug, params: payload)
+        monkeypatch.setattr("joborion.sources.ats_boards._fetch_greenhouse", lambda slug, params, proxy=None: payload)
 
         provider = AtsBoardsProvider({"max_per_company": 50, "max_results": 300})
         result = provider.search({})
@@ -309,7 +309,7 @@ class TestAtsBoards:
         )
         monkeypatch.setattr("joborion.sources.ats_boards.get_connection", lambda: conn)
 
-        def fake_fetch(slug, params):
+        def fake_fetch(slug, params, proxy=None):
             if slug == "bad":
                 raise RuntimeError("board exploded")
             return {
@@ -352,7 +352,7 @@ class TestAtsBoards:
         )
         conn.commit()
 
-        def fake_fetch(slug, params):
+        def fake_fetch(slug, params, proxy=None):
             return {
                 "jobs": [
                     {

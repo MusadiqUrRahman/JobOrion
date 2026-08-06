@@ -413,6 +413,7 @@ Each task = one purpose, one test, exact files. `✓` = check off at completion.
 - Files: `src/joborion/config/sources.yaml`, `src/joborion/sources/jobspy_provider.py`
 - Optional `JOBSPY_PROXY` env; pass proxies to jobspy + httpx providers
 - Test: `test_sources_jobspy.py::test_proxy_kwargs`
+- [x] Done
 
 **E4. Rate limiting + polite crawling**
 - Files: `src/joborion/sources/base.py`

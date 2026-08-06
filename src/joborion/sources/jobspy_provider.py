@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from joborion import config
 from joborion.discovery.jobspy import scrape_jobspy
-from joborion.sources.base import ProviderResult
+from joborion.sources.base import ProviderResult, resolve_proxy
 
 
 class JobSpyProvider:
@@ -32,6 +32,9 @@ class JobSpyProvider:
             defaults["hours_old"] = self.cfg["hours_old"]
         if defaults:
             override["defaults"] = {**search_cfg.get("defaults", {}), **defaults}
+        proxy = resolve_proxy(self.cfg)
+        if proxy:
+            override["proxy"] = proxy
         if override:
             search_cfg = {**search_cfg, **override}
         return search_cfg

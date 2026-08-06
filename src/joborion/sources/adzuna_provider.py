@@ -17,7 +17,7 @@ import httpx
 
 from joborion.config import load_env, load_search_config
 from joborion.database import get_connection
-from joborion.sources.base import ProviderResult, RawJob, store_raw_jobs
+from joborion.sources.base import ProviderResult, RawJob, proxy_http_url, resolve_proxy, store_raw_jobs
 
 log = logging.getLogger(__name__)
 
@@ -33,10 +33,10 @@ def _strip_html(html_text: str) -> str:
     return html.unescape(text).strip()
 
 
-def _fetch(url: str, params: dict) -> dict:
+def _fetch(url: str, params: dict, proxy: str | None = None) -> dict:
     """GET the Adzuna API and return the parsed JSON body."""
     try:
-        with httpx.Client(timeout=15, follow_redirects=True) as client:
+        with httpx.Client(timeout=15, follow_redirects=True, proxy=proxy) as client:
             response = client.get(url, params=params)
             response.raise_for_status()
             return response.json()
@@ -135,7 +135,7 @@ class AdzunaProvider:
                     params["salary_min"] = min_salary
 
                 url = f"{ADZUNA_BASE}/{country}/search/1"
-                data = _fetch(url, params)
+                data = _fetch(url, params, proxy=proxy_http_url(resolve_proxy(self.cfg)))
                 for result in data.get("results") or []:
                     if len(jobs) >= max_results:
                         break

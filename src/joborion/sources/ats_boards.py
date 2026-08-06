@@ -15,7 +15,7 @@ import yaml
 
 from joborion import config
 from joborion.database import get_connection
-from joborion.sources.base import ProviderResult, RawJob, store_raw_jobs
+from joborion.sources.base import ProviderResult, RawJob, proxy_http_url, resolve_proxy, store_raw_jobs
 from joborion.sourcing.learning import note_company_run, pruned_companies
 from joborion.wizard.preferences import load_preferences
 
@@ -146,46 +146,50 @@ def parse_smartrecruiters(payload: dict) -> list[RawJob]:
     return jobs
 
 
-def _fetch_greenhouse(slug: str, params: dict | None = None) -> dict:
+def _fetch_greenhouse(slug: str, params: dict | None = None, proxy: str | None = None) -> dict:
     resp = httpx.get(
         f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs",
         params=params or {},
         timeout=15,
         follow_redirects=True,
+        proxy=proxy,
     )
     resp.raise_for_status()
     return resp.json()
 
 
-def _fetch_lever(slug: str, params: dict | None = None) -> list:
+def _fetch_lever(slug: str, params: dict | None = None, proxy: str | None = None) -> list:
     resp = httpx.get(
         f"https://api.lever.co/v0/postings/{slug}",
         params=params or {"mode": "json"},
         timeout=15,
         follow_redirects=True,
+        proxy=proxy,
     )
     resp.raise_for_status()
     data = resp.json()
     return data if isinstance(data, list) else []
 
 
-def _fetch_ashby(org: str, params: dict | None = None) -> dict:
+def _fetch_ashby(org: str, params: dict | None = None, proxy: str | None = None) -> dict:
     resp = httpx.get(
         f"https://api.ashbyhq.com/posting-api/job-board/{org}",
         params=params or {},
         timeout=15,
         follow_redirects=True,
+        proxy=proxy,
     )
     resp.raise_for_status()
     return resp.json()
 
 
-def _fetch_smartrecruiters(slug: str, params: dict | None = None) -> dict:
+def _fetch_smartrecruiters(slug: str, params: dict | None = None, proxy: str | None = None) -> dict:
     resp = httpx.get(
         f"https://api.smartrecruiters.com/v1/companies/{slug}/postings",
         params=params or {"limit": 100},
         timeout=15,
         follow_redirects=True,
+        proxy=proxy,
     )
     resp.raise_for_status()
     return resp.json()
@@ -194,16 +198,16 @@ def _fetch_smartrecruiters(slug: str, params: dict | None = None) -> dict:
 _PLATFORMS = ("greenhouse", "lever", "ashby", "smartrecruiters")
 
 
-def _fetch(platform: str, slug: str, params: dict | None) -> object:
+def _fetch(platform: str, slug: str, params: dict | None, proxy: str | None = None) -> object:
     # Call-time dispatch so tests can monkeypatch individual _fetch_* functions.
     if platform == "greenhouse":
-        return _fetch_greenhouse(slug, params)
+        return _fetch_greenhouse(slug, params, proxy)
     if platform == "lever":
-        return _fetch_lever(slug, params)
+        return _fetch_lever(slug, params, proxy)
     if platform == "ashby":
-        return _fetch_ashby(slug, params)
+        return _fetch_ashby(slug, params, proxy)
     if platform == "smartrecruiters":
-        return _fetch_smartrecruiters(slug, params)
+        return _fetch_smartrecruiters(slug, params, proxy)
     raise ValueError(f"unknown platform: {platform}")
 
 
@@ -290,7 +294,7 @@ class AtsBoardsProvider:
                 note_company_run(conn, self.name, company_key)
                 continue
             try:
-                payload = _fetch(platform, slug, None)
+                payload = _fetch(platform, slug, None, proxy_http_url(resolve_proxy(self.cfg)))
                 parsed = _parse(platform, company, payload)
             except Exception as exc:
                 errors += 1

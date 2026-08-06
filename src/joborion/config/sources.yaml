@@ -9,6 +9,8 @@
 #   - max_results: per-run result cap (0 = unlimited). Excess jobs are trimmed
 #     after each run so a single source cannot flood the pool. This is also the
 #     main cost lever for LLM-heavy sources like ai_sites.
+#   - proxy: <host:port[:user:pass]> for boards that block the datacenter IP.
+#     The JOBSPY_PROXY env var overrides this for every provider.
 #   - Provider-specific options are documented below each entry.
 
 providers:
