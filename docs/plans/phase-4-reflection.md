@@ -150,8 +150,8 @@ joborion reflect --help
 
 ## Phase 4 is complete when:
 
-- [ ] M4.1: Reflection log table + store/query functions work
-- [ ] M4.2: Reflector analyzes runs, identifies failures, generates recommendations
-- [ ] M4.3: Scoring calibration produces actionable insights
-- [ ] M4.4: `joborion reflect` CLI works with all flags
-- [ ] M4.5: 10+ tests pass, ruff clean
+- [x] M4.1: Reflection log table + store/query functions work
+- [x] M4.2: Reflector analyzes runs, identifies failures, generates recommendations
+- [x] M4.3: Scoring calibration produces actionable insights
+- [x] M4.4: `joborion reflect` CLI works with all flags
+- [x] M4.5: 10+ tests pass, ruff clean

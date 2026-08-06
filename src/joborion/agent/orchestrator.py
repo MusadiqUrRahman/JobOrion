@@ -7,6 +7,7 @@ tracking budget, handling errors, and recording results.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 from joborion.agent.planner import Planner, Plan
 from joborion.agent.context import ContextManager
@@ -14,6 +15,8 @@ from joborion.agent.tools import ActionResult
 from joborion.agent.registry import build_default_registry, ToolRegistry
 
 log = logging.getLogger(__name__)
+
+_APPLY_TOOLS = frozenset({"tailor_resume", "write_letter", "export_pdf"})
 
 
 class BudgetExceeded(Exception):
@@ -36,6 +39,7 @@ class Orchestrator:
         auto: bool = False,
         yes: bool = False,
         semi: bool = False,
+        prompt_fn: Callable[[str], str] | None = None,
     ) -> None:
         self.goal = goal
         self.max_cost = max_cost
@@ -50,6 +54,7 @@ class Orchestrator:
         self._auto = auto
         self._yes = yes
         self._semi = semi
+        self._prompt = prompt_fn or input
 
     @staticmethod
     def _build_planner() -> Planner:
@@ -103,13 +108,18 @@ class Orchestrator:
                 continue
 
             # Check gates in autonomous mode
-            if self._auto and not self._yes:
-                if self._should_gate("cost"):
-                    log.warning("Cost gate triggered at $%.4f / $%.2f",
-                                self._accumulated_cost, self.max_cost)
-                if self._should_gate("error_rate"):
-                    log.warning("Error rate gate triggered at %.0f%%",
-                                self._error_rate() * 100)
+            if self._auto:
+                if not self._check_gate("cost"):
+                    log.info("Skipping step '%s' after cost gate declined", step.tool)
+                    continue
+                if not self._check_gate("error_rate"):
+                    log.info("Skipping step '%s' after error-rate gate declined", step.tool)
+                    continue
+
+            # Semi mode: approve before each application-related step
+            if self._semi and step.tool in _APPLY_TOOLS and not self._check_gate("apply"):
+                log.info("Skipping apply step '%s' after gate declined", step.tool)
+                continue
 
             # Execute the tool
             try:
@@ -239,6 +249,42 @@ class Orchestrator:
             return self._semi
 
         return False
+
+    def _check_gate(self, gate_type: str) -> bool:
+        """Check a human-in-the-loop gate and prompt the user if it triggers.
+
+        Args:
+            gate_type: One of "cost", "error_rate", "apply".
+
+        Returns:
+            True if the step may proceed, False if the user declined.
+        """
+        if self._yes or not self._should_gate(gate_type):
+            return True
+        warning = self._gate_warning(gate_type)
+        log.warning(warning)
+        return self._confirm(f"{warning}\nProceed? [y/N]: ")
+
+    def _gate_warning(self, gate_type: str) -> str:
+        """Build a human-readable warning message for a triggered gate."""
+        if gate_type == "cost":
+            return (
+                f"Cost gate triggered at ${self._accumulated_cost:.4f} / "
+                f"${self.max_cost:.2f} (50% threshold)"
+            )
+        if gate_type == "error_rate":
+            return f"Error rate gate triggered at {self._error_rate() * 100:.0f}%"
+        if gate_type == "apply":
+            return "Application gate: approve before submitting this application"
+        return f"Gate '{gate_type}' triggered"
+
+    def _confirm(self, prompt_text: str) -> bool:
+        """Prompt the user for a yes/no answer."""
+        try:
+            raw = self._prompt(prompt_text)
+        except (EOFError, KeyboardInterrupt):
+            return False
+        return raw.strip().lower() in ("y", "yes")
 
     def _error_rate(self) -> float:
         """Calculate current error rate."""

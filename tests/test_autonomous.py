@@ -1,12 +1,12 @@
 """Tests for Phase 5: Goal Parser, Autonomous Mode, Reporter."""
 
-import sqlite3
-from unittest.mock import patch, MagicMock
-
 import pytest
 from joborion.agent.goal_parser import GoalParser
 from joborion.agent.reporter import RunReporter
 from joborion.agent.orchestrator import Orchestrator
+from joborion.agent.planner import Plan, PlanStep
+from joborion.agent.registry import ToolRegistry
+from joborion.agent.tools import ActionResult, Tool
 from joborion.database import close_connection, init_db
 
 
@@ -155,6 +155,84 @@ class TestGates:
         orch._error_count = 1
         assert orch._should_gate("cost") is False
         assert orch._should_gate("error_rate") is False
+
+    def test_gate_yes_skips_prompt(self):
+        """--yes skips the prompt entirely."""
+        orch = Orchestrator(goal="test", auto=True, yes=True)
+        orch._accumulated_cost = 0.6
+        orch._prompt = lambda msg: (_ for _ in ()).throw(AssertionError("should not prompt"))
+        assert orch._check_gate("cost") is True
+
+    def test_gate_prompted_when_triggered(self):
+        """Triggered gate prompts; declining returns False."""
+        orch = Orchestrator(goal="test", auto=True, max_cost=1.0)
+        orch._accumulated_cost = 0.6
+        orch._prompt = lambda msg: "n"
+        assert orch._check_gate("cost") is False
+
+    def test_gate_approval_proceeds(self):
+        """Triggered gate proceeds after explicit approval."""
+        orch = Orchestrator(goal="test", auto=True, max_cost=1.0)
+        orch._accumulated_cost = 0.6
+        orch._prompt = lambda msg: "y"
+        assert orch._check_gate("cost") is True
+
+    def test_gate_not_triggered_no_prompt(self):
+        """Normal conditions never prompt the user."""
+        orch = Orchestrator(goal="test", auto=True, max_cost=1.0)
+        orch._prompt = lambda msg: (_ for _ in ()).throw(AssertionError("should not prompt"))
+        assert orch._check_gate("cost") is True
+
+    def test_apply_gate_not_gated_without_semi(self):
+        """Apply gate never triggers without semi mode."""
+        orch = Orchestrator(goal="test", auto=True)
+        orch._prompt = lambda msg: (_ for _ in ()).throw(AssertionError("should not prompt"))
+        assert orch._check_gate("apply") is True
+
+    def test_semi_gate_blocks_apply_step(self):
+        """semi mode prompts before apply steps; declining skips the step."""
+        orch = self._make_semi_orch()
+        orch._prompt = lambda msg: "n"
+        result = orch.execute()
+        assert result["results"] == []
+
+    def test_semi_gate_approve_runs_step(self):
+        """semi mode runs the apply step after approval."""
+        orch = self._make_semi_orch()
+        orch._prompt = lambda msg: "y"
+        result = orch.execute()
+        assert len(result["results"]) == 1
+        assert result["results"][0].action == "tailor_resume"
+
+    @staticmethod
+    def _make_semi_orch():
+        class _NoopApplyTool(Tool):
+            name = "tailor_resume"
+            description = "test apply tool"
+            parameters = {}
+
+            def execute(self, **params):
+                return ActionResult(
+                    action="tailor_resume", status="ok", details={}, cost=0.0, duration_ms=1
+                )
+
+        registry = ToolRegistry()
+        registry.register(_NoopApplyTool())
+
+        class _StubPlanner:
+            def __init__(self, plan):
+                self._plan = plan
+
+            def plan(self, goal):
+                return self._plan
+
+        orch = Orchestrator(goal="test", auto=True, semi=True, registry=registry)
+        plan = Plan(
+            goal="test",
+            steps=[PlanStep(tool="tailor_resume", params={}, description="tailor")],
+        )
+        orch._planner = _StubPlanner(plan)
+        return orch
 
 
 # ===========================================================================

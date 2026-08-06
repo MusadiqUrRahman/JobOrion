@@ -176,8 +176,8 @@ joborion run --help  # shows --auto, --semi, --yes flags
 
 ## Phase 5 is complete when:
 
-- [ ] M5.1: Goal parser works with various input formats
-- [ ] M5.2: Autonomous mode runs full loop
-- [ ] M5.3: Human-in-the-loop gates pause correctly
-- [ ] M5.4: Run summary report is generated
-- [ ] M5.5: 10+ tests pass, ruff clean
+- [x] M5.1: Goal parser works with various input formats
+- [x] M5.2: Autonomous mode runs full loop
+- [x] M5.3: Human-in-the-loop gates pause correctly
+- [x] M5.4: Run summary report is generated
+- [x] M5.5: 10+ tests pass, ruff clean
