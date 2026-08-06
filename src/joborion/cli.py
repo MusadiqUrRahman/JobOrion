@@ -506,6 +506,36 @@ def _run_scheduled(stages: list[str], interval: str, at: str | None) -> None:
 
 
 @app.command()
+def notify(
+    to: Optional[str] = typer.Option(None, "--to", help="Override recipient email."),
+    goal: Optional[str] = typer.Option(None, "--goal", "-g", help="Goal label for the digest."),
+) -> None:
+    """Send an email digest of the latest pipeline stats."""
+    print_startup_screen()
+    _bootstrap()
+
+    from joborion.database import get_connection, get_stats, get_total_cost
+    from joborion.notifier import build_digest, digest_from_stats, load_notify_config, send_digest
+
+    cfg = load_notify_config()
+    if to:
+        cfg["to_addr"] = to
+    if not cfg:
+        print_error("Email not configured: set SMTP_HOST, SMTP_USER, SMTP_PASS, NOTIFY_TO.")
+        raise typer.Exit(code=1)
+
+    stats = get_stats(conn=get_connection())
+    run_data = digest_from_stats(stats, goal=goal or "", total_cost=get_total_cost(conn=get_connection()))
+    digest = build_digest(run_data)
+
+    if send_digest(digest, cfg=cfg):
+        print_success(f"Digest sent to {cfg['to_addr']}")
+    else:
+        print_error("Failed to send digest email.")
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def apply(
     limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Max applications."),
     workers: int = typer.Option(1, "--workers", "-w", help="Parallel workers."),

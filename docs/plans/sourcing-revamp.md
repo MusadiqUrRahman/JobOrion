@@ -428,6 +428,7 @@ Each task = one purpose, one test, exact files. `✓` = check off at completion.
 **F2. Goal-driven search** — wire new providers into existing Orchestrator tools
 - [x] Done (`SearchProvidersTool` in `tools/discovery.py` calls `run_providers`; registered in default registry; planner emits `search_providers` step for goals mentioning providers/all sources; 6 tests in `tests/test_search_providers_tool.py`)
 **F3. Notification/report** — rich summary + optional email digest
+- [x] Done (`src/joborion/notifier.py`: `load_notify_config`/`build_digest`/`digest_from_stats`/`send_digest`; `joborion notify` CLI with `--to`/`--goal`; 10 tests in `tests/test_notifier.py`)
 **F4. Personalization dashboard** — HTML report of matched jobs by provider
 
 ---
