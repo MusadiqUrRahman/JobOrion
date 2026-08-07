@@ -33,9 +33,10 @@ providers:
 
   # Adzuna API: aggregated board with rich salary data.
   # Reliability: high. Cost: free tier (1k requests/day) with an API key.
-  # Requires ADZUNA_APP_ID + ADZUNA_APP_KEY in ~/.joborion/.env.
+  # Requires ADZUNA_APP_ID + ADZUNA_APP_KEY in ~/.joborion/.env; without them
+  # the provider is skipped gracefully (found=0, no error).
   adzuna:
-    enabled: false
+    enabled: true
     priority: 30
     app_id_env: ADZUNA_APP_ID
     app_key_env: ADZUNA_APP_KEY
@@ -43,12 +44,12 @@ providers:
     results_per_query: 50
 
   # Remote-specific boards: Remotive, RemoteOK, WeWorkRemotely, Jobicy,
-  # Arbeitnow, Hacker News Who is Hiring.
+  # Arbeitnow, Working Nomads, Hacker News Who is Hiring.
   # Reliability: medium. Cost: free (public JSON feeds, no keys).
   remote_boards:
     enabled: true
     priority: 40
-    sources: [remotive, remoteok, wwr, jobicy, arbeitnow, hn]
+    sources: [remotive, remoteok, wwr, jobicy, arbeitnow, workingnomads, hn]
 
   # ATS boards: Greenhouse, Lever, Ashby, SmartRecruiters public job feeds.
   # Reliability: medium-high. Cost: free (public JSON APIs).

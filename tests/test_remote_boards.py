@@ -10,6 +10,7 @@ from joborion.sources.remote_boards import (
     parse_jobicy,
     parse_remotive,
     parse_remoteok,
+    parse_workingnomads,
     parse_wwr,
 )
 
@@ -231,6 +232,41 @@ class TestRemoteBoards:
         assert jobs[1].company == "Wayne Enterprises"
         assert jobs[1].url == "https://news.ycombinator.com/item?id=123457"
 
+    def test_workingnomads_parses(self):
+        payload = [
+            {
+                "title": "Senior Python Developer",
+                "company_name": "Nomad Labs",
+                "location": "Europe",
+                "url": "https://www.workingnomads.com/job/go/123/",
+                "description": "<p>Build <b>backend</b> services.</p>",
+                "category_name": "Software Development",
+                "pub_date": "2026-08-01T10:00:00Z",
+            },
+            {
+                "title": "Frontend Engineer",
+                "company_name": "Globex",
+                "location": "Worldwide",
+                "url": "https://www.workingnomads.com/job/go/124/",
+                "description": "React and TypeScript.",
+                "category_name": "Software Development",
+                "pub_date": "2026-08-02T10:00:00Z",
+            },
+        ]
+        jobs = parse_workingnomads(payload)
+        assert len(jobs) == 2
+        assert jobs[0].title == "Senior Python Developer"
+        assert jobs[0].company == "Nomad Labs"
+        assert jobs[0].location == "Europe"
+        assert jobs[0].description == "Build backend services."
+        assert jobs[0].job_type == "Software Development"
+        assert jobs[0].posted_at == "2026-08-01T10:00:00Z"
+        assert jobs[0].url == "https://www.workingnomads.com/job/go/123/"
+        assert jobs[0].is_remote is True
+        assert jobs[0].source == "workingnomads"
+        assert jobs[0].site == "Working Nomads"
+        assert jobs[1].title == "Frontend Engineer"
+
     def test_search_aggregates_and_stores(self, conn, monkeypatch):
         monkeypatch.setattr("joborion.sources.remote_boards.get_connection", lambda: conn)
         monkeypatch.setattr(
@@ -238,7 +274,7 @@ class TestRemoteBoards:
             lambda: {"queries": [{"query": "python developer", "tier": 1}]},
         )
         provider = RemoteBoardsProvider({
-            "sources": ["remotive", "remoteok", "wwr", "jobicy", "arbeitnow", "hn"],
+            "sources": ["remotive", "remoteok", "wwr", "jobicy", "arbeitnow", "workingnomads", "hn"],
         })
         payloads = {
             "_fetch_remotive": [{
@@ -264,6 +300,11 @@ class TestRemoteBoards:
                 "url": "https://arbeitnow.com/a1", "description": "d", "salary": "",
                 "published_at": "2025-01-01",
             }],
+            "_fetch_workingnomads": [{
+                "title": "WN1", "company_name": "WN Co", "location": "Worldwide",
+                "url": "https://workingnomads.com/wn1", "description": "d",
+                "category_name": "Software", "pub_date": "2025-01-01",
+            }],
             "_fetch_hn": [{"id": 1, "text": "<p>HN Co | Role</p>"}],
         }
         for name, payload in payloads.items():
@@ -275,10 +316,10 @@ class TestRemoteBoards:
         result = provider.search({"mode": "remote"})
 
         assert result.provider == "remote_boards"
-        assert result.found == 6
-        assert result.stored == 6
+        assert result.found == 7
+        assert result.stored == 7
         assert result.errors == 0
-        assert conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 6
+        assert conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 7
 
     def test_source_error_does_not_abort(self, conn, monkeypatch):
         monkeypatch.setattr("joborion.sources.remote_boards.get_connection", lambda: conn)

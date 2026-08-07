@@ -1,4 +1,4 @@
-"""Remote-board provider: Remotive, RemoteOK, WeWorkRemotely, Jobicy, Arbeitnow, Hacker News.
+"""Remote-board provider: Remotive, RemoteOK, WeWorkRemotely, Jobicy, Arbeitnow, Working Nomads, Hacker News.
 
 Each board is exposed as a pure parse_* function (JSON payload -> list[RawJob])
 paired with a _fetch_* function (httpx -> raw JSON items) so parsing logic can
@@ -25,6 +25,7 @@ _REMOTE_OK_URL = "https://remoteok.com/api"
 _WWR_URL = "https://weworkremotely.com/categories/remote-full-time-jobs.json"
 _JOBICY_URL = "https://jobicy.com/api/v2/remote-jobs"
 _ARBEITNOW_URL = "https://www.arbeitnow.com/api/job-board-api"
+_WORKING_NOMADS_URL = "https://www.workingnomads.com/api/exposed_jobs"
 _ALGOLIA_BASE = "https://hn.algolia.com/api/v1"
 
 _REMOTIVE_LIMIT = 50
@@ -37,7 +38,7 @@ _SALARY_RANGE_RE = re.compile(
     re.IGNORECASE,
 )
 
-_DEFAULT_SOURCES = ("remotive", "remoteok", "wwr", "jobicy", "arbeitnow", "hn")
+_DEFAULT_SOURCES = ("remotive", "remoteok", "wwr", "jobicy", "arbeitnow", "workingnomads", "hn")
 _SOURCE_NAMES = frozenset(_DEFAULT_SOURCES)
 _SEARCHABLE_SOURCES = frozenset({"remotive"})
 
@@ -232,6 +233,26 @@ def parse_arbeitnow(jobs: list) -> list[RawJob]:
     return result
 
 
+def parse_workingnomads(jobs: list) -> list[RawJob]:
+    result: list[RawJob] = []
+    for item in jobs or []:
+        if not isinstance(item, dict) or not item.get("title"):
+            continue
+        result.append(RawJob(
+            title=item.get("title"),
+            company=item.get("company_name"),
+            location=item.get("location"),
+            description=strip_html(item.get("description")),
+            url=item.get("url"),
+            job_type=item.get("category_name"),
+            posted_at=item.get("pub_date"),
+            is_remote=True,
+            source="workingnomads",
+            site="Working Nomads",
+        ))
+    return result
+
+
 def _hn_company(title_line: str) -> str:
     parts = re.split(r"\s*[|–—]\s*|\s+-\s+", title_line, maxsplit=1)
     return parts[0].strip()
@@ -289,6 +310,11 @@ def _fetch_arbeitnow(client: httpx.Client, term: str | None = None) -> list:
     return payload.get("data", []) if isinstance(payload, dict) else []
 
 
+def _fetch_workingnomads(client: httpx.Client, term: str | None = None) -> list:
+    payload = _get_json(client, _WORKING_NOMADS_URL)
+    return payload if isinstance(payload, list) else []
+
+
 def _fetch_hn(client: httpx.Client, term: str | None = None) -> list:
     search = _get_json(
         client,
@@ -316,6 +342,8 @@ def _run_source(source: str, client: httpx.Client, term: str | None) -> list[Raw
         return parse_jobicy(_fetch_jobicy(client, term_arg))
     if source == "arbeitnow":
         return parse_arbeitnow(_fetch_arbeitnow(client, term_arg))
+    if source == "workingnomads":
+        return parse_workingnomads(_fetch_workingnomads(client, term_arg))
     if source == "hn":
         return parse_hn(_fetch_hn(client, term_arg))
     return []
