@@ -68,11 +68,13 @@ Task 5: Add pytest-mock to dev extras
 
 ```bash
 python -m ruff check src tests        # 0 errors
-uv run pytest -q                      # full suite green
+uv run pytest -q                      # full suite green (666 tests)
 python -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))"
 ```
 
 Manual: push to origin/main and confirm the Actions run goes green on GitHub.
+Status: [x] DONE — `ci` workflow green on `main` (a48787a) after the
+environment-coupling fixes above; lint + tests both pass on the runner.
 
 ## Critical Review
 
