@@ -79,17 +79,17 @@ class TestScheduledRunner:
 
 
 class TestCLIScheduling:
-    def test_run_help_shows_schedule(self):
+    def test_run_help_shows_schedule(self, cli_flags):
         from joborion.cli import app
         from typer.testing import CliRunner
         result = CliRunner().invoke(app, ["run", "--help"])
         assert result.exit_code == 0
-        assert "--schedule" in result.output
+        assert "--schedule" in cli_flags["run"]
 
-    def test_daemon_help_shows_interval_and_at(self):
+    def test_daemon_help_shows_interval_and_at(self, cli_flags):
         from joborion.cli import app
         from typer.testing import CliRunner
         result = CliRunner().invoke(app, ["daemon", "--help"])
         assert result.exit_code == 0
-        assert "--interval" in result.output
-        assert "--at" in result.output
+        assert "--interval" in cli_flags["daemon"]
+        assert "--at" in cli_flags["daemon"]

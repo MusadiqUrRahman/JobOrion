@@ -84,3 +84,25 @@ Manual: push to origin/main and confirm the Actions run goes green on GitHub.
 4. Over-engineered? No caching of uv/cache, no matrix, no nightly — minimal.
 5. Testable? Task 1 and Task 3 verify locally; Task 2 verified by YAML parse
    + the manual push check.
+
+## CI Run Fixes (from first red run on GitHub Actions)
+
+First `ci` run failed 8 tests that passed on Windows but not on the runner:
+
+- **6 CLI help tests** (test_autonomous x3, test_scheduler x2, test_notifier x1):
+  asserted on rich-rendered `--help` text. On GH Actions, typer sets
+  `force_terminal=True` (`GITHUB_ACTIONS` env, typer/rich_utils.py:78-81) and
+  the option cells are truncated in the captured output. Fixed by asserting
+  on registered option declarations instead (deterministic across envs):
+  new `tests/conftest.py` `cli_flags` fixture introspects
+  `OptionInfo.param_decls` per command; tests keep the `--help` invoke +
+  `exit_code == 0` check.
+- **`TestScoreSingleJobTool::test_execute_job_not_found`**: `ScoreSingleJobTool`
+  read `RESUME_PATH` (absent on runner) before checking the job existed, so
+  the error was `FileNotFoundError` not "job not found". Fixed the tool to
+  look up the job in the DB first (`src/joborion/tools/scoring.py`).
+- **`TestScoringE2E::test_score_single_job`**: patched
+  `fit_scorer.RESUME_PATH` but the tool reads `config.RESUME_PATH`; on the
+  runner no `~/.joborion/resume.txt` exists. Added the missing patch to
+  `tests/test_pipeline_e2e.py`.
+

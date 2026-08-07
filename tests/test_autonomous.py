@@ -314,27 +314,29 @@ class TestReporter:
 class TestCLIAutonomy:
     """Tests for CLI autonomous flags."""
 
-    def test_run_help_shows_auto(self):
+    def test_run_help_shows_auto(self, cli_flags):
         """'joborion run --help' shows --auto flag."""
         from joborion.cli import app
         from typer.testing import CliRunner
         runner = CliRunner()
         result = runner.invoke(app, ["run", "--help"])
         assert result.exit_code == 0
-        assert "--auto" in result.output
+        assert "--auto" in cli_flags["run"]
 
-    def test_run_help_shows_yes(self):
+    def test_run_help_shows_yes(self, cli_flags):
         """'joborion run --help' shows --yes flag."""
         from joborion.cli import app
         from typer.testing import CliRunner
         runner = CliRunner()
         result = runner.invoke(app, ["run", "--help"])
-        assert "--yes" in result.output
+        assert result.exit_code == 0
+        assert "--yes" in cli_flags["run"]
 
-    def test_run_help_shows_semi(self):
+    def test_run_help_shows_semi(self, cli_flags):
         """'joborion run --help' shows --semi flag."""
         from joborion.cli import app
         from typer.testing import CliRunner
         runner = CliRunner()
         result = runner.invoke(app, ["run", "--help"])
-        assert "--semi" in result.output
+        assert result.exit_code == 0
+        assert "--semi" in cli_flags["run"]

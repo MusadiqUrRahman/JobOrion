@@ -199,10 +199,11 @@ class TestScoringE2E:
 
         with patch("joborion.scoring.fit_scorer.get_client", return_value=mock_client):
             with patch("joborion.scoring.fit_scorer.RESUME_PATH", resume_file):
-                with patch("joborion.database.DB_PATH", str(db_path)):
-                    from joborion.tools.scoring import ScoreSingleJobTool
-                    tool = ScoreSingleJobTool()
-                    result = tool.execute(url="http://example.com/job/1")
+                with patch("joborion.config.RESUME_PATH", resume_file):
+                    with patch("joborion.database.DB_PATH", str(db_path)):
+                        from joborion.tools.scoring import ScoreSingleJobTool
+                        tool = ScoreSingleJobTool()
+                        result = tool.execute(url="http://example.com/job/1")
 
         assert result.status == "ok"
         assert result.details["score"] == 9

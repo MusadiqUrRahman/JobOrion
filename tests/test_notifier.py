@@ -107,12 +107,12 @@ class TestSendDigest:
 
 
 class TestCLINotify:
-    def test_notify_help_shows_to(self):
+    def test_notify_help_shows_to(self, cli_flags):
         from joborion.cli import app
         from typer.testing import CliRunner
         result = CliRunner().invoke(app, ["notify", "--help"])
         assert result.exit_code == 0
-        assert "--to" in result.output
+        assert "--to" in cli_flags["notify"]
 
     def test_notify_without_config_errors(self, monkeypatch):
         from joborion.cli import app

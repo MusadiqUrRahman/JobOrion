@@ -28,12 +28,12 @@ class ScoreSingleJobTool(Tool):
             from joborion.scoring.fit_scorer import score_job
             from datetime import datetime, timezone
 
-            resume_text = RESUME_PATH.read_text(encoding="utf-8")
             conn = get_connection()
             row = conn.execute("SELECT * FROM jobs WHERE url = ?", (url,)).fetchone()
             if not row:
                 return ActionResult(self.name, "error", {"url": url}, 0.0, 0, f"Job not found: {url}")
 
+            resume_text = RESUME_PATH.read_text(encoding="utf-8")
             job = dict(zip(row.keys(), row))
             result = score_job(resume_text, job)
 
