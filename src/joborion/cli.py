@@ -336,6 +336,7 @@ def run(
     ),
     goal: Optional[str] = typer.Option(None, "--goal", "-g", help="Natural language goal."),
     auto: bool = typer.Option(False, "--auto", help="Autonomous mode (full loop)."),
+    agentic: bool = typer.Option(False, "--agentic", help="Agentic mode (dynamic tool selection loop)."),
     semi: bool = typer.Option(False, "--semi", help="Semi-autonomous: approve before each application."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip all approval gates."),
     min_score: int = typer.Option(7, "--min-score", help="Minimum fit score."),
@@ -379,7 +380,23 @@ def run(
 
         orch = Orchestrator(goal=goal, max_cost=5.0, auto=auto, yes=yes, semi=semi)
 
-        if auto:
+        if agentic:
+            with print_spinner("Running agentic loop..."):
+                result = orch.execute_agentic()
+            summary = result.get("summary", "")
+            report = result.get("report", "")
+            panel_title = (
+                "[bold bright_green]🤖 Agentic Run Complete[/bold bright_green]"
+                if result.get("status") == "completed"
+                else "[bold yellow]🤖 Agentic Run Stopped[/bold yellow]"
+            )
+            console.print(make_gradient_panel(
+                f"{summary}\n\n{report}",
+                title=panel_title,
+                border_style="bright_green" if result.get("status") == "completed" else "yellow",
+                padding=(1, 2),
+            ))
+        elif auto:
             with print_spinner("Running autonomous pipeline..."):
                 result = orch.execute_autonomous()
             report = result.get("report", "")

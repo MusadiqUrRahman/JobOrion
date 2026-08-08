@@ -16,7 +16,7 @@ from joborion.agent.registry import build_default_registry, ToolRegistry
 
 log = logging.getLogger(__name__)
 
-_APPLY_TOOLS = frozenset({"tailor_resume", "write_letter", "export_pdf"})
+_APPLY_TOOLS = frozenset({"tailor_resume", "write_cover_letter", "convert_to_pdf"})
 
 
 class BudgetExceeded(Exception):
@@ -177,7 +177,73 @@ class Orchestrator:
         # 3. Execute
         result = self.execute()
 
-        # 4. Reflect (store reflection)
+        # 4. Reflect + report
+        reflection, report = self._reflect_and_report(result, plan)
+
+        return {
+            "status": result["status"],
+            "plan": [s.description for s in plan.steps],
+            "results": result.get("results", []),
+            "total_cost": self._accumulated_cost,
+            "errors": result.get("errors", []),
+            "reflection": reflection,
+            "report": report,
+            "parsed_goal": parsed,
+        }
+
+    def execute_agentic(self) -> dict:
+        """Execute in agentic mode: dynamic ReAct loop → reflect → report.
+
+        Uses the LLM to choose each tool based on observed results. Falls back
+        to the deterministic autonomous path when no LLM client is available.
+
+        Returns:
+            Dict with keys: status, summary, trace, actions, results,
+            total_cost, llm_calls, tool_calls, errors, reflection, report.
+        """
+        try:
+            from joborion.llm import get_client
+            client = get_client()
+        except Exception as e:
+            log.warning("No LLM client available for agentic mode; falling back to deterministic: %s", e)
+            return self.execute_autonomous()
+
+        from joborion.agent.agent_loop import AgentLoop
+        loop = AgentLoop(
+            goal=self.goal,
+            registry=self._registry,
+            client=client,
+            max_cost=self.max_cost,
+        )
+        loop_result = loop.run()
+
+        reflection, report = self._reflect_and_report(loop_result)
+
+        return {
+            "status": loop_result["status"],
+            "summary": loop_result["summary"],
+            "trace": loop_result["trace"],
+            "actions": loop_result["actions"],
+            "results": [a.action for a in loop.context.get_recent_actions()],
+            "total_cost": loop_result["total_cost"],
+            "llm_calls": loop_result["llm_calls"],
+            "tool_calls": loop_result["tool_calls"],
+            "errors": loop_result["errors"],
+            "reflection": reflection,
+            "report": report,
+        }
+
+    def _reflect_and_report(self, execution: dict, plan: Plan | None = None) -> tuple[dict | None, str]:
+        """Reflect on a run and generate the human-readable report.
+
+        Args:
+            execution: Result dict from execute() or the agent loop.
+            plan: The execution plan, if one was used (drives stage names).
+
+        Returns:
+            Tuple of (reflection dict or None, report string).
+        """
+        # Reflect (store reflection)
         reflection = None
         try:
             from joborion.agent.reflector import Reflector
@@ -190,33 +256,29 @@ class Orchestrator:
         except Exception as e:
             log.warning("Reflection failed: %s", e)
 
-        # 5. Generate report
+        # Generate report
         from joborion.agent.reporter import RunReporter
         reporter = RunReporter()
+        if plan is not None:
+            stages = [
+                {"name": step.tool, "status": "ok", "count": 1}
+                for step in plan.steps
+            ]
+        else:
+            stages = [
+                {"name": action, "status": "ok", "count": 1}
+                for action in execution.get("actions", [])
+            ]
         report_data = {
             "goal": self.goal,
             "duration_s": 0.0,
-            "total_cost": self._accumulated_cost,
-            "stages": [
-                {"name": step.tool, "status": "ok", "count": 1}
-                for step in plan.steps
-            ],
+            "total_cost": execution.get("total_cost", self._accumulated_cost),
+            "stages": stages,
             "top_jobs": [],
-            "errors": result.get("errors", []),
+            "errors": execution.get("errors", []),
             "lessons": reflection.get("recommendations", []) if reflection else [],
         }
-        report = reporter.generate(report_data)
-
-        return {
-            "status": result["status"],
-            "plan": [s.description for s in plan.steps],
-            "results": result.get("results", []),
-            "total_cost": self._accumulated_cost,
-            "errors": result.get("errors", []),
-            "reflection": reflection,
-            "report": report,
-            "parsed_goal": parsed,
-        }
+        return reflection, reporter.generate(report_data)
 
     def _check_budget(self) -> None:
         """Raise BudgetExceeded if budget would be exceeded."""

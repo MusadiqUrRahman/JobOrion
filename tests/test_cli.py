@@ -11,6 +11,11 @@ from joborion.cli import app
 runner = CliRunner()
 
 
+class TestRunAgenticFlag:
+    def test_run_declares_agentic_flag(self, cli_flags):
+        assert "--agentic" in cli_flags["run"]
+
+
 class TestConfigureCommand:
     def test_configure_runs_wizard_and_writes_preferences(self, tmp_path):
         profile = {"experience": {"target_role": "Backend Engineer"}}

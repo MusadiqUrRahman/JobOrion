@@ -71,45 +71,43 @@ _GOAL_KEYWORDS: dict[str, list[str]] = {
 # Tool sequences per pipeline stage
 _STAGE_TOOLS: dict[str, list[tuple[str, dict, str, float, int]]] = {
     "search": [
-        ("search_jobspy", {}, "Search job boards via JobSpy", 0.0, 30000),
-        ("search_workday", {}, "Search corporate career sites", 0.0, 20000),
-        ("search_ai_sites", {}, "AI-powered site scraping", 0.0, 15000),
+        ("scrape_jobspy", {}, "Search job boards via JobSpy", 0.0, 30000),
+        ("scrape_workday", {}, "Search corporate career sites", 0.0, 20000),
+        ("scrape_ai_sites", {}, "AI-powered site scraping", 0.0, 15000),
     ],
     "providers": [
         ("search_providers", {"max_results": 25}, "Search all configured job sources", 0.0, 60000),
     ],
     "details": [
-        ("fetch_details", {"limit": 100}, "Fetch full job descriptions", 0.0, 45000),
+        ("enrich_batch", {"limit": 100}, "Fetch full job descriptions", 0.0, 45000),
     ],
     "evaluate": [
-        ("evaluate_jobs", {}, "Score all enriched jobs against resume", 0.0, 60000),
+        ("score_batch", {}, "Score all enriched jobs against resume", 0.0, 60000),
     ],
     "tailor": [
         ("tailor_resume", {"min_score": 7}, "Generate tailored resumes for top jobs", 0.0, 30000),
     ],
     "letter": [
-        ("write_letter", {"min_score": 7}, "Write cover letters for top jobs", 0.0, 20000),
+        ("write_cover_letter", {"min_score": 7}, "Write cover letters for top jobs", 0.0, 20000),
     ],
     "export": [
-        ("export_pdf", {}, "Convert documents to PDF", 0.0, 10000),
+        ("convert_to_pdf", {}, "Convert documents to PDF", 0.0, 10000),
     ],
 }
 
 
 _KNOWN_TOOLS: list[dict[str, str]] = [
-    {"name": "search_jobspy", "description": "Search job boards via JobSpy (LinkedIn, Indeed, etc.)", "params": "search_query (optional), limit (optional)"},
-    {"name": "search_workday", "description": "Search corporate career sites (Workday)", "params": "search_query (optional), limit (optional)"},
-    {"name": "search_ai_sites", "description": "AI-powered scraping of career pages", "params": "search_query (optional), limit (optional)"},
+    {"name": "scrape_jobspy", "description": "Search job boards via JobSpy (LinkedIn, Indeed, etc.)", "params": "search_query (optional), location (optional), remote_only (optional)"},
+    {"name": "scrape_workday", "description": "Search corporate career sites (Workday)", "params": "search_query (optional), limit (optional)"},
+    {"name": "scrape_ai_sites", "description": "AI-powered scraping of career pages", "params": "search_query (optional), limit (optional)"},
     {"name": "search_providers", "description": "Search all configured job sources in one pass", "params": "query (optional), remote (optional), min_salary (optional), max_results (optional)"},
-    {"name": "fetch_details", "description": "Enrich jobs with full descriptions from career pages", "params": "url (optional), limit (optional)"},
-    {"name": "enrich_single", "description": "Enrich a single job by URL with full description", "params": "url (required)"},
+    {"name": "enrich_single_job", "description": "Enrich a single job by URL with full description", "params": "url (required)"},
     {"name": "enrich_batch", "description": "Enrich multiple jobs with full descriptions", "params": "limit (optional)"},
-    {"name": "evaluate_jobs", "description": "Score all enriched jobs against resume for fit", "params": "limit (optional)"},
-    {"name": "score_single", "description": "Score a single job by URL against resume", "params": "url (required)"},
+    {"name": "score_single_job", "description": "Score a single job by URL against resume", "params": "url (required)"},
     {"name": "score_batch", "description": "Score multiple jobs against resume", "params": "limit (optional)"},
     {"name": "tailor_resume", "description": "Generate tailored resume for a job", "params": "url (required), min_score (optional)"},
-    {"name": "write_letter", "description": "Write cover letter for a job", "params": "url (required), min_score (optional)"},
-    {"name": "export_pdf", "description": "Convert documents to PDF", "params": "input_path (required)"},
+    {"name": "write_cover_letter", "description": "Write cover letter for a job", "params": "url (required), min_score (optional)"},
+    {"name": "convert_to_pdf", "description": "Convert documents to PDF", "params": "input_path (required)"},
     {"name": "query_jobs", "description": "Query jobs from the database with filters", "params": "stage (optional), min_score (optional), limit (optional)"},
     {"name": "get_job_detail", "description": "Get full details for a specific job by URL", "params": "url (required)"},
     {"name": "get_pipeline_stats", "description": "Get pipeline statistics and job counts by stage", "params": "none"},
@@ -134,10 +132,10 @@ Rules:
 
 Example for "find senior Python jobs":
 [
-  {{"tool": "search_jobspy", "params": {{"search_query": "senior python"}}, "description": "Search job boards for senior Python roles"}},
-  {{"tool": "search_workday", "params": {{"search_query": "senior python"}}, "description": "Search corporate career sites for senior Python roles"}},
-  {{"tool": "fetch_details", "params": {{"limit": 100}}, "description": "Enrich discovered jobs with full descriptions"}},
-  {{"tool": "evaluate_jobs", "params": {{}}, "description": "Score all enriched jobs against resume"}}
+  {{"tool": "scrape_jobspy", "params": {{"search_query": "senior python"}}, "description": "Search job boards for senior Python roles"}},
+  {{"tool": "scrape_workday", "params": {{"search_query": "senior python"}}, "description": "Search corporate career sites for senior Python roles"}},
+  {{"tool": "enrich_batch", "params": {{"limit": 100}}, "description": "Enrich discovered jobs with full descriptions"}},
+  {{"tool": "score_batch", "params": {{}}, "description": "Score all enriched jobs against resume"}}
 ]"""
 
 

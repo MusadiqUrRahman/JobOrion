@@ -19,11 +19,11 @@ class TestPlanner:
     def test_plan_detects_search_stages(self):
         plan = self.planner.plan("Find Python jobs")
         tools = [s.tool for s in plan.steps]
-        assert "search_jobspy" in tools
+        assert "scrape_jobspy" in tools
 
     def test_plan_with_query(self):
         plan = self.planner.plan("Find senior Python jobs")
-        search_step = next(s for s in plan.steps if s.tool == "search_jobspy")
+        search_step = next(s for s in plan.steps if s.tool == "scrape_jobspy")
         assert "python" in search_step.params.get("search_query", "")
 
     def test_plan_tailor_goal(self):
@@ -34,9 +34,9 @@ class TestPlanner:
     def test_plan_all_stages(self):
         plan = self.planner.plan("Find, enrich, score, tailor, and export PDF for Python jobs")
         tools = [s.tool for s in plan.steps]
-        assert "search_jobspy" in tools
-        assert "fetch_details" in tools
-        assert "evaluate_jobs" in tools
+        assert "scrape_jobspy" in tools
+        assert "enrich_batch" in tools
+        assert "score_batch" in tools
 
     def test_plan_total_cost(self):
         plan = self.planner.plan("Find Python jobs")
@@ -66,26 +66,26 @@ class TestPlanner:
     def test_plan_detects_evaluate(self):
         plan = self.planner.plan("Score and rank Python jobs")
         tools = [s.tool for s in plan.steps]
-        assert "evaluate_jobs" in tools
+        assert "score_batch" in tools
 
     def test_plan_detects_letter(self):
         plan = self.planner.plan("Write cover letter for Python jobs")
         tools = [s.tool for s in plan.steps]
-        assert "write_letter" in tools
+        assert "write_cover_letter" in tools
 
     def test_plan_uses_llm_when_available(self):
         mock_client = MagicMock()
         mock_client.chat.return_value = '''[
-            {"tool": "search_jobspy", "params": {"search_query": "senior python remote"}, "description": "Search job boards"},
-            {"tool": "fetch_details", "params": {"limit": 50}, "description": "Enrich jobs"},
-            {"tool": "evaluate_jobs", "params": {}, "description": "Score jobs"}
+            {"tool": "scrape_jobspy", "params": {"search_query": "senior python remote"}, "description": "Search job boards"},
+            {"tool": "enrich_batch", "params": {"limit": 50}, "description": "Enrich jobs"},
+            {"tool": "score_batch", "params": {}, "description": "Score jobs"}
         ]'''
         planner = Planner(client=mock_client)
         plan = planner.plan("Find senior remote Python jobs")
         tools = [s.tool for s in plan.steps]
-        assert "search_jobspy" in tools
-        assert "fetch_details" in tools
-        assert "evaluate_jobs" in tools
+        assert "scrape_jobspy" in tools
+        assert "enrich_batch" in tools
+        assert "score_batch" in tools
         mock_client.chat.assert_called_once()
 
     def test_plan_fallback_on_llm_failure(self):
@@ -96,7 +96,7 @@ class TestPlanner:
         # Should fall back to keyword planner and still produce steps
         assert len(plan.steps) > 0
         tools = [s.tool for s in plan.steps]
-        assert "search_jobspy" in tools
+        assert "scrape_jobspy" in tools
 
     def test_plan_fallback_on_llm_empty_response(self):
         mock_client = MagicMock()
@@ -110,7 +110,7 @@ class TestPlanner:
         plan = planner.plan("Find Python jobs")
         assert len(plan.steps) > 0
         tools = [s.tool for s in plan.steps]
-        assert "search_jobspy" in tools
+        assert "scrape_jobspy" in tools
 
 
 class TestLLMPlanner:
@@ -119,20 +119,20 @@ class TestLLMPlanner:
 
     def test_plan_valid_response(self):
         self.mock_client.chat.return_value = '''[
-            {"tool": "search_jobspy", "params": {"search_query": "python"}, "description": "Search boards"},
-            {"tool": "evaluate_jobs", "params": {}, "description": "Score jobs"}
+            {"tool": "scrape_jobspy", "params": {"search_query": "python"}, "description": "Search boards"},
+            {"tool": "score_batch", "params": {}, "description": "Score jobs"}
         ]'''
         planner = LLMPlanner(self.mock_client)
         plan = planner.plan("Find Python jobs")
         assert plan is not None
         assert len(plan.steps) == 2
-        assert plan.steps[0].tool == "search_jobspy"
+        assert plan.steps[0].tool == "scrape_jobspy"
         assert plan.steps[0].params == {"search_query": "python"}
 
     def test_plan_with_code_fences(self):
         self.mock_client.chat.return_value = '''```json
 [
-    {"tool": "search_jobspy", "params": {}, "description": "Search"}
+    {"tool": "scrape_jobspy", "params": {}, "description": "Search"}
 ]
 ```'''
         planner = LLMPlanner(self.mock_client)
@@ -142,14 +142,14 @@ class TestLLMPlanner:
 
     def test_plan_filters_unknown_tools(self):
         self.mock_client.chat.return_value = '''[
-            {"tool": "search_jobspy", "params": {}, "description": "Search"},
+            {"tool": "scrape_jobspy", "params": {}, "description": "Search"},
             {"tool": "nonexistent_tool", "params": {}, "description": "Bad tool"}
         ]'''
         planner = LLMPlanner(self.mock_client)
         plan = planner.plan("Find jobs")
         assert plan is not None
         assert len(plan.steps) == 1
-        assert plan.steps[0].tool == "search_jobspy"
+        assert plan.steps[0].tool == "scrape_jobspy"
 
     def test_plan_returns_none_on_llm_error(self):
         self.mock_client.chat.side_effect = RuntimeError("API down")
@@ -171,9 +171,9 @@ class TestLLMPlanner:
 
     def test_plan_step_dependencies(self):
         self.mock_client.chat.return_value = '''[
-            {"tool": "search_jobspy", "params": {}, "description": "Search"},
-            {"tool": "fetch_details", "params": {}, "description": "Enrich"},
-            {"tool": "evaluate_jobs", "params": {}, "description": "Score"}
+            {"tool": "scrape_jobspy", "params": {}, "description": "Search"},
+            {"tool": "enrich_batch", "params": {}, "description": "Enrich"},
+            {"tool": "score_batch", "params": {}, "description": "Score"}
         ]'''
         planner = LLMPlanner(self.mock_client)
         plan = planner.plan("Find and score jobs")
@@ -184,19 +184,19 @@ class TestLLMPlanner:
 
 class TestParseLLMResponse:
     def test_parse_valid_json(self):
-        raw = '[{"tool": "search_jobspy", "params": {}, "description": "Search"}]'
+        raw = '[{"tool": "scrape_jobspy", "params": {}, "description": "Search"}]'
         result = _parse_llm_response(raw)
         assert result is not None
         assert len(result) == 1
 
     def test_parse_with_code_fences(self):
-        raw = '```json\n[{"tool": "search_jobspy", "params": {}, "description": "Search"}]\n```'
+        raw = '```json\n[{"tool": "scrape_jobspy", "params": {}, "description": "Search"}]\n```'
         result = _parse_llm_response(raw)
         assert result is not None
         assert len(result) == 1
 
     def test_parse_with_surrounding_text(self):
-        raw = 'Here is the plan:\n[{"tool": "search_jobspy", "params": {}, "description": "Search"}]\nDone.'
+        raw = 'Here is the plan:\n[{"tool": "scrape_jobspy", "params": {}, "description": "Search"}]\nDone.'
         result = _parse_llm_response(raw)
         assert result is not None
 
@@ -205,7 +205,7 @@ class TestParseLLMResponse:
         assert result is None
 
     def test_parse_non_array_returns_none(self):
-        result = _parse_llm_response('{"tool": "search_jobspy"}')
+        result = _parse_llm_response('{"tool": "scrape_jobspy"}')
         assert result is None
 
     def test_parse_empty_array(self):
@@ -217,29 +217,29 @@ class TestParseLLMResponse:
 class TestValidateSteps:
     def test_validate_valid_steps(self):
         raw = [
-            {"tool": "search_jobspy", "params": {"search_query": "python"}, "description": "Search"},
-            {"tool": "evaluate_jobs", "params": {}, "description": "Score"},
+            {"tool": "scrape_jobspy", "params": {"search_query": "python"}, "description": "Search"},
+            {"tool": "score_batch", "params": {}, "description": "Score"},
         ]
         steps = _validate_steps(raw)
         assert len(steps) == 2
-        assert steps[0].tool == "search_jobspy"
+        assert steps[0].tool == "scrape_jobspy"
         assert steps[0].params == {"search_query": "python"}
         assert steps[1].depends_on == 0
 
     def test_validate_skips_unknown_tools(self):
         raw = [
-            {"tool": "search_jobspy", "params": {}, "description": "Search"},
+            {"tool": "scrape_jobspy", "params": {}, "description": "Search"},
             {"tool": "fake_tool", "params": {}, "description": "Fake"},
         ]
         steps = _validate_steps(raw)
         assert len(steps) == 1
 
     def test_validate_fills_defaults(self):
-        raw = [{"tool": "search_jobspy"}]
+        raw = [{"tool": "scrape_jobspy"}]
         steps = _validate_steps(raw)
         assert len(steps) == 1
         assert steps[0].params == {}
-        assert steps[0].description == "Execute search_jobspy"
+        assert steps[0].description == "Execute scrape_jobspy"
 
     def test_validate_empty_list(self):
         steps = _validate_steps([])
@@ -262,3 +262,21 @@ class TestPlan:
         ]
         assert steps[1].depends_on == 0
         assert steps[0].depends_on is None
+
+
+class TestPlannerToolNameSync:
+    """Drift guard: every tool name the planner emits must be registered."""
+
+    def test_stage_tools_all_registered(self):
+        from joborion.agent.planner import _STAGE_TOOLS
+        from joborion.agent.registry import build_default_registry
+        registered = set(build_default_registry().list_tools())
+        emitted = {name for stage in _STAGE_TOOLS.values() for name, _, _, _, _ in stage}
+        assert emitted <= registered, f"Unregistered planner tools: {emitted - registered}"
+
+    def test_known_tools_all_registered(self):
+        from joborion.agent.planner import _KNOWN_TOOLS
+        from joborion.agent.registry import build_default_registry
+        registered = set(build_default_registry().list_tools())
+        known = {t["name"] for t in _KNOWN_TOOLS}
+        assert known <= registered, f"Unregistered known tools: {known - registered}"

@@ -67,5 +67,5 @@ class TestPlannerProviders:
         from joborion.agent.planner import Planner
         plan = Planner().plan("find python jobs")
         tools = [s.tool for s in plan.steps]
-        assert "search_jobspy" in tools
+        assert "scrape_jobspy" in tools
         assert "search_providers" not in tools

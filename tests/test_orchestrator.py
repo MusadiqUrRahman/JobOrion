@@ -15,7 +15,7 @@ def _make_result(action="test", status="ok", cost=0.0):
 
 def _make_registry(tool_names=None):
     registry = ToolRegistry()
-    for name in (tool_names or ["search_jobspy", "evaluate_jobs"]):
+    for name in (tool_names or ["scrape_jobspy", "score_batch"]):
         tool = MagicMock()
         tool.name = name
         tool.description = f"Mock {name}"
@@ -43,7 +43,7 @@ class TestOrchestratorPlan:
 class TestOrchestratorExecute:
     @patch.object(Orchestrator, "_build_planner", return_value=Planner())
     def test_execute_with_mocked_tools(self, _mock_planner):
-        registry = _make_registry(["search_jobspy", "search_workday", "search_ai_sites"])
+        registry = _make_registry(["scrape_jobspy", "scrape_workday", "scrape_ai_sites"])
         orch = Orchestrator(goal="Find Python jobs", registry=registry)
         result = orch.execute()
         assert result["status"] == "completed"
@@ -53,10 +53,10 @@ class TestOrchestratorExecute:
     def test_execute_tool_failure(self, _mock_planner):
         registry = ToolRegistry()
         tool = MagicMock()
-        tool.name = "search_jobspy"
+        tool.name = "scrape_jobspy"
         tool.description = "Mock"
         tool.parameters = {}
-        tool.execute.return_value = _make_result(action="search_jobspy", status="error")
+        tool.execute.return_value = _make_result(action="scrape_jobspy", status="error")
         registry.register(tool)
         orch = Orchestrator(goal="Find Python jobs", registry=registry)
         result = orch.execute()
@@ -129,13 +129,13 @@ class TestOrchestratorBudget:
 
 class TestOrchestratorFailedTools:
     def test_failed_tool_skipped(self):
-        registry = _make_registry(["search_jobspy", "evaluate_jobs"])
+        registry = _make_registry(["scrape_jobspy", "score_batch"])
         orch = Orchestrator(goal="Find and score Python jobs", registry=registry)
-        orch._failed_tools.add("search_jobspy")
-        # execute should skip search_jobspy
+        orch._failed_tools.add("scrape_jobspy")
+        # execute should skip scrape_jobspy
         result = orch.execute()
-        # The search_jobspy tool should not have been dispatched
-        assert "search_jobspy" not in [
+        # The scrape_jobspy tool should not have been dispatched
+        assert "scrape_jobspy" not in [
             r.action for r in result["results"] if r.status == "ok"
         ]
 
@@ -146,7 +146,7 @@ class TestOrchestratorAutonomous:
     def test_execute_autonomous_calls_reflect(self, mock_plan, mock_execute):
         mock_plan.return_value = Plan(
             goal="test",
-            steps=[PlanStep(tool="search_jobspy", params={}, description="Search")],
+            steps=[PlanStep(tool="scrape_jobspy", params={}, description="Search")],
         )
         mock_execute.return_value = {
             "status": "completed",
@@ -164,3 +164,38 @@ class TestOrchestratorAutonomous:
                     result = orch.execute_autonomous()
         assert "status" in result
         assert "report" in result
+
+
+class TestOrchestratorAgentic:
+    def _done_client(self):
+        class DoneClient:
+            def chat(self, messages, temperature=0.0, max_tokens=600):
+                return '{"thought": "goal met", "done": true, "summary": "found 3 jobs"}'
+        return DoneClient()
+
+    @patch("joborion.llm.get_client")
+    def test_execute_agentic_completes(self, mock_get_client):
+        mock_get_client.return_value = self._done_client()
+        registry = _make_registry(["query_jobs"])
+        orch = Orchestrator(goal="Find Python jobs", registry=registry)
+        with patch("joborion.agent.reflector.Reflector") as mock_ref:
+            mock_ref.return_value.analyze_run.return_value = {
+                "recommendations": [], "what_went_well": [],
+            }
+            with patch("joborion.database.store_reflection"):
+                with patch("joborion.database.get_connection"):
+                    result = orch.execute_agentic()
+        assert result["status"] == "completed"
+        assert result["summary"] == "found 3 jobs"
+        assert result["llm_calls"] == 1
+        assert "report" in result
+        assert "trace" in result
+
+    @patch("joborion.llm.get_client", side_effect=RuntimeError("no api key"))
+    @patch.object(Orchestrator, "execute_autonomous")
+    def test_execute_agentic_falls_back_without_llm(self, mock_auto, mock_get_client):
+        mock_auto.return_value = {"status": "completed", "report": "deterministic"}
+        orch = Orchestrator(goal="Find Python jobs")
+        result = orch.execute_agentic()
+        assert result == {"status": "completed", "report": "deterministic"}
+        mock_auto.assert_called_once_with()
