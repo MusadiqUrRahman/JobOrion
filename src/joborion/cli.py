@@ -351,6 +351,8 @@ def run(
     schedule: Optional[str] = typer.Option(
         None, "--schedule", help="Repeat pipeline on a schedule: hourly, daily, weekly.",
     ),
+    notify: bool = typer.Option(False, "--notify", help="Email a digest after the run."),
+    report: bool = typer.Option(False, "--report", help="Print the analytics report after the run."),
 ) -> None:
     """Run pipeline stages: search, details, evaluate, tailor, letter, export."""
     print_startup_screen()
@@ -471,8 +473,18 @@ def run(
     if result.get("errors"):
         raise typer.Exit(code=1)
 
+    if notify or report:
+        from joborion.database import get_connection
+
+        _post_run_output(
+            get_connection(),
+            notify=notify,
+            report=report,
+            goal=goal or f"pipeline:{','.join(stage_list)}",
+        )
+
     if schedule is not None:
-        _run_scheduled(stage_list, schedule, None)
+        _run_scheduled(stage_list, schedule, None, notify=notify, report=report)
 
 
 @app.command()
@@ -483,15 +495,61 @@ def daemon(
     ),
     interval: str = typer.Option("daily", "--interval", help="Repeat interval: hourly, daily, weekly."),
     at: Optional[str] = typer.Option(None, "--at", help="Daily start time in HH:MM (24h)."),
+    notify: bool = typer.Option(False, "--notify", help="Email a digest after each scheduled run."),
+    report: bool = typer.Option(False, "--report", help="Print the analytics report after each scheduled run."),
 ) -> None:
     """Run the pipeline on a repeating schedule and keep running."""
     print_startup_screen()
     _bootstrap()
     stage_list = stages if stages else ["all"]
-    _run_scheduled(stage_list, interval, at)
+    _run_scheduled(stage_list, interval, at, notify=notify, report=report)
 
 
-def _run_scheduled(stages: list[str], interval: str, at: str | None) -> None:
+def _post_run_output(conn, *, notify: bool, report: bool, goal: str = "") -> None:
+    """After a pipeline run, email the digest and/or print the analytics report.
+
+    Both are best-effort: a missing SMTP config or render failure warns and
+    continues — automation must never fail the run itself.
+    """
+    if notify:
+        from joborion.database import get_stats, get_total_cost
+        from joborion.notifier import (
+            build_digest,
+            digest_from_stats,
+            load_notify_config,
+            send_digest,
+        )
+
+        stats = get_stats(conn=conn)
+        run_data = digest_from_stats(
+            stats,
+            goal=goal or "Recent pipeline run",
+            total_cost=get_total_cost(conn=conn),
+        )
+        cfg = load_notify_config()
+        if cfg and send_digest(build_digest(run_data), cfg=cfg):
+            print_success(f"Digest email sent to {cfg['to_addr']}")
+        else:
+            print_warning("Email not configured; digest skipped.")
+
+    if report:
+        from joborion.report import build_report, render_report
+
+        print_spacer()
+        try:
+            console.print(render_report(build_report(conn=conn)))
+        except Exception as e:
+            print_warning(f"Report render failed: {e}")
+
+
+def _run_scheduled(
+    stages: list[str],
+    interval: str,
+    at: str | None,
+    *,
+    notify: bool = False,
+    report: bool = False,
+) -> None:
     """Register the pipeline on a schedule and block until interrupted."""
     from joborion.scheduler import ScheduledRunner
 
@@ -502,8 +560,15 @@ def _run_scheduled(stages: list[str], interval: str, at: str | None) -> None:
         raise typer.Exit(code=1)
 
     def _job() -> None:
+        from joborion.database import get_connection
         from joborion.pipeline import run_pipeline
         run_pipeline(stages=stages)
+        _post_run_output(
+            get_connection(),
+            notify=notify,
+            report=report,
+            goal=f"pipeline:{','.join(stages)}",
+        )
 
     runner.add_job(_job, job_id="pipeline")
     runner.start()
