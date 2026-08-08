@@ -238,6 +238,28 @@ def reflect(
             print_spacer()
 
 
+@app.command()
+def report(
+    days: int = typer.Option(30, "--days", help="Lookback window in days."),
+    top: int = typer.Option(10, "--top", help="Max providers/runs to show."),
+    json: bool = typer.Option(False, "--json", help="Print JSON instead of text."),
+) -> None:
+    """Print an analytics report of pipeline telemetry (read-only, no LLM)."""
+    import json as _json
+
+    from joborion.database import get_connection
+    from joborion.report import build_report, render_report
+
+    _bootstrap()
+
+    data = build_report(conn=get_connection(), days=days, top=top)
+    if json:
+        console.print(_json.dumps(data, indent=2))
+        return
+    print_screen_header("Report", "Pipeline analytics", "📊")
+    console.print(render_report(data))
+
+
 def _resolve_search_preferences(
     *,
     ask: bool = False,
