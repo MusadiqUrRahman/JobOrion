@@ -52,22 +52,22 @@ Task 1: Publish workflow
   Verify: YAML parses; matches ci.yml conventions (same setup-uv version,
   timeout-minutes)
   Depends on: nothing
-  Status: [ ] Pending
+  Status: [x] Done
 
 Task 2: Tag v0.4.0
   Run: `git tag -a v0.4.0 -m "JobOrion 0.4.0"` (on current HEAD `d73beec`)
   Verify: `git tag` lists it; `git show v0.4.0 --oneline -s` shows the message
   Depends on: nothing
-  Status: [ ] Pending
+  Status: [x] Done
 
 Task 3: Verification + push
-  Verify: `uv build` succeeds locally (wheel + sdist produced, config YAMLs
-  included); ruff clean (workflow YAML not linted, but sanity-checked);
-  `git status` clean aside from `docs/marketing/`
+  Verify: `uv build` succeeded (dist/joborion-0.4.0.tar.gz + wheel, config
+  YAMLs included in the wheel); ruff clean; `git status` clean aside from
+  `docs/marketing/`
   Push: tag with the push — `git push origin main v0.4.0`
   Note: do NOT publish to PyPI (blocked by git dependency); GitHub Action
   runs only after the push lands on `main` + tag
-  Status: [ ] Pending
+  Status: [x] Done
 
 ## Verification
 
