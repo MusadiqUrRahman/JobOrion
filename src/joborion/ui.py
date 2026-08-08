@@ -98,8 +98,8 @@ def print_banner() -> None:
 
     tagline = Text()
     tagline.append("  AI-Powered Job Application Pipeline", style="dim bright_white")
+    tagline.append(f"  v{_get_version()}", style="dim bright_cyan")
     group_parts.append(tagline)
-
     console.print(Group(*group_parts))
     console.print()
 
@@ -111,7 +111,7 @@ def _get_version() -> str:
         from joborion import __version__
         return __version__
     except Exception:
-        return "0.3.0"
+        return "0.4.0"
 
 
 def _get_tier_info() -> tuple[int, str]:

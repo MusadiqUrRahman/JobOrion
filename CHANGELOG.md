@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+## [0.4.0] - 2026-08-08
+
 ### Added
 - Multi-profile workspace isolation: `joborion --profile <name> <command>`
   runs in an isolated workspace, plus `joborion profile create/list` and the
@@ -15,3 +17,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   cost ledger, and run history (read-only, no LLM).
 - Adzuna job provider (requires `ADZUNA_APP_ID` / `ADZUNA_APP_KEY`) and the
   Working Nomads remote board.
+- Legacy provider view in `joborion report`: databases created before
+  `provider_metrics` existed now show providers from `source_stats` + job
+  strategy history.
