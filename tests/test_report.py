@@ -132,6 +132,76 @@ class TestProviderReport:
         assert rows["A"]["disabled"] is False
 
 
+def _seed_legacy(conn):
+    conn.executemany(
+        "INSERT INTO source_stats (source_name, total_runs, failed_runs, "
+        "total_passed, avg_fit, disabled) VALUES (?, ?, ?, ?, ?, ?)",
+        [
+            ("jobspy", 3, 1, 5, 7.0, 0),
+            ("workday", 3, 0, 200, 8.5, 0),
+            ("smartextract", 3, 3, 0, None, 1),
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO jobs (url, title, strategy) VALUES (?, ?, ?)",
+        [
+            ("j1", "J1", "workday_api"),
+            ("j2", "J2", "workday_api"),
+            ("j3", "J3", "jobspy"),
+            ("j4", "J4", "provider"),
+        ],
+    )
+    conn.commit()
+
+
+class TestProviderReportLegacy:
+    def test_falls_back_to_source_stats_and_jobs(self, conn):
+        _seed_legacy(conn)
+        rows = provider_report(conn, days=30)
+        by_name = {r["provider"]: r for r in rows}
+        assert set(by_name) == {"jobspy", "workday", "smartextract"}
+        assert by_name["workday"]["runs"] == 3
+        assert by_name["workday"]["found"] == 2
+        assert by_name["workday"]["stored"] == 2
+        assert by_name["workday"]["passed"] == 200
+        assert by_name["workday"]["avg_fit"] == 8.5
+        assert by_name["workday"]["disabled"] is False
+        assert by_name["jobspy"]["found"] == 1
+        assert by_name["smartextract"]["found"] == 0
+        assert by_name["smartextract"]["errors"] == 3
+        assert by_name["smartextract"]["disabled"] is True
+
+    def test_legacy_ordered_by_stored(self, conn):
+        _seed_legacy(conn)
+        rows = provider_report(conn, days=30)
+        assert [r["provider"] for r in rows] == ["workday", "jobspy", "smartextract"]
+
+    def test_legacy_respects_top_limit(self, conn):
+        _seed_legacy(conn)
+        rows = provider_report(conn, days=30, top=1)
+        assert len(rows) == 1
+        assert rows[0]["provider"] == "workday"
+
+    def test_no_phantom_provider_for_unmapped_strategy(self, conn):
+        conn.execute(
+            "INSERT INTO source_stats (source_name, total_runs) VALUES ('jobspy', 1)"
+        )
+        conn.execute("INSERT INTO jobs (url, title, strategy) VALUES ('j5', 'J5', 'provider')")
+        conn.commit()
+        rows = provider_report(conn, days=30)
+        assert len(rows) == 1
+        assert rows[0]["provider"] == "jobspy"
+        assert rows[0]["found"] == 0
+
+    def test_modern_metrics_win_over_legacy(self, conn):
+        _seed_legacy(conn)
+        _seed_metrics(conn)
+        rows = {r["provider"]: r for r in provider_report(conn, days=30)}
+        assert "A" in rows
+        assert rows["A"]["runs"] == 2
+        assert "workday" not in rows
+
+
 class TestCostReport:
     def test_totals_within_window(self, conn):
         _seed_cost(conn)

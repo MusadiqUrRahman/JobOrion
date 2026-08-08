@@ -49,6 +49,22 @@ _RUNS_SQL = (
 
 _DISABLED_SQL = "SELECT source_name, disabled FROM source_stats"
 
+# Legacy databases (pre provider_metrics) tagged jobs with old strategy
+# strings. Map them back to the provider names used by source_stats so the
+# Providers section is meaningful without a data migration.
+_LEGACY_STRATEGY_PROVIDERS = {
+    "jobspy": "jobspy",
+    "workday_api": "workday",
+    "css_selectors": "smartextract",
+}
+
+_LEGACY_RUNS_SQL = (
+    "SELECT source_name, total_runs, failed_runs, total_passed, avg_fit "
+    "FROM source_stats WHERE total_runs > 0"
+)
+
+_JOBS_BY_STRATEGY_SQL = "SELECT strategy, COUNT(*) AS n FROM jobs GROUP BY strategy"
+
 
 def _cutoff(days: int) -> str:
     """UTC ISO timestamp marking the report window start (matches stored format)."""
@@ -74,6 +90,8 @@ def provider_report(conn, days: int = 30, top: int = 10) -> list[dict]:
         row["source_name"]: bool(row["disabled"])
         for row in conn.execute(_DISABLED_SQL).fetchall()
     }
+    if not rows:
+        rows = _legacy_provider_rows(conn, disabled, top)
     result = []
     for row in rows:
         result.append({
@@ -91,6 +109,39 @@ def provider_report(conn, days: int = 30, top: int = 10) -> list[dict]:
             "disabled": disabled.get(row["provider"], False),
         })
     return result
+
+
+def _legacy_provider_rows(conn, disabled: dict[str, bool], top: int) -> list[dict]:
+    """Provider rows for DBs created before provider_metrics existed.
+
+    Built from source_stats run history and legacy job strategy counts so the
+    report stays truthful on old databases without writing any data.
+    """
+    found_by_provider: dict[str, int] = {}
+    for row in conn.execute(_JOBS_BY_STRATEGY_SQL).fetchall():
+        provider = _LEGACY_STRATEGY_PROVIDERS.get(row["strategy"])
+        if provider:
+            found_by_provider[provider] = found_by_provider.get(provider, 0) + row["n"]
+
+    rows = []
+    for row in conn.execute(_LEGACY_RUNS_SQL).fetchall():
+        found = found_by_provider.get(row["source_name"], 0)
+        rows.append({
+            "provider": row["source_name"],
+            "runs": row["total_runs"],
+            "found": found,
+            "stored": found,
+            "passed": row["total_passed"],
+            "scored": 0,
+            "applied": 0,
+            "rejected": 0,
+            "errors": row["failed_runs"],
+            "avg_fit": row["avg_fit"],
+            "avg_latency_ms": 0,
+            "disabled": disabled.get(row["source_name"], False),
+        })
+    rows.sort(key=lambda r: r["stored"], reverse=True)
+    return rows[: max(int(top), 1)]
 
 
 def cost_report(conn, days: int = 30) -> dict:
