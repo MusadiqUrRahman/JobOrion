@@ -2,7 +2,9 @@
 
 import os
 import platform
+import re
 import shutil
+import sys
 from pathlib import Path
 
 # User data directory — all user-specific files live here
@@ -29,6 +31,112 @@ APPLY_WORKER_DIR = APP_DIR / "apply-workers"
 # Package-shipped config (YAML registries)
 PACKAGE_DIR = Path(__file__).parent
 CONFIG_DIR = PACKAGE_DIR / "config"
+
+# ---------------------------------------------------------------------------
+# Profiles — isolated workspaces under APP_DIR/profiles/<name>
+# ---------------------------------------------------------------------------
+
+_ACTIVE_PROFILE: str | None = None
+_PROFILE_NAME_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,63})$")
+
+
+def get_profile() -> str | None:
+    """Return the active profile name, or None for the default workspace."""
+    return _ACTIVE_PROFILE
+
+
+def get_profile_dir() -> Path:
+    """Base directory for the active profile; APP_DIR when no profile is set."""
+    if _ACTIVE_PROFILE:
+        return APP_DIR / "profiles" / _ACTIVE_PROFILE
+    return APP_DIR
+
+
+def list_profiles() -> list[str]:
+    """Sorted profile names, always including the implicit default."""
+    profiles_dir = APP_DIR / "profiles"
+    if not profiles_dir.exists():
+        return ["default"]
+    names = sorted(p.name for p in profiles_dir.iterdir() if p.is_dir())
+    return ["default", *names]
+
+
+def _rebind_profile_paths() -> None:
+    """Point every path constant at the active profile's directory."""
+    global DB_PATH, PROFILE_PATH, RESUME_PATH, RESUME_PDF_PATH
+    global SEARCH_CONFIG_PATH, PREFERENCES_PATH, ENV_PATH, TAILORED_DIR
+    global COVER_LETTER_DIR, LOG_DIR, CHROME_WORKER_DIR, APPLY_WORKER_DIR
+    base = get_profile_dir()
+    DB_PATH = base / "joborion.db"
+    PROFILE_PATH = base / "profile.json"
+    RESUME_PATH = base / "resume.txt"
+    RESUME_PDF_PATH = base / "resume.pdf"
+    SEARCH_CONFIG_PATH = base / "searches.yaml"
+    PREFERENCES_PATH = base / "preferences.yaml"
+    ENV_PATH = base / ".env"
+    TAILORED_DIR = base / "tailored_resumes"
+    COVER_LETTER_DIR = base / "cover_letters"
+    LOG_DIR = base / "logs"
+    CHROME_WORKER_DIR = base / "chrome-workers"
+    APPLY_WORKER_DIR = base / "apply-workers"
+
+
+def set_profile(name: str | None) -> None:
+    """Activate an isolated workspace; None resets to the default.
+
+    Raises ValueError for empty or unsafe names. Rebinding only happens when
+    the profile actually changes, so pre-applied module-level path patches
+    (used by tests) survive a no-op call.
+    """
+    global _ACTIVE_PROFILE
+    if name is None:
+        name = None
+    if name == _ACTIVE_PROFILE:
+        return
+    if name is not None and (not name or not _PROFILE_NAME_RE.match(name) or name in (".", "..")):
+        raise ValueError(
+            "Profile names must be 1-64 chars: letters, digits, '.', '_', '-'."
+        )
+    _ACTIVE_PROFILE = name
+    _rebind_profile_paths()
+    _sync_imported_modules()
+
+
+def reset_profile() -> None:
+    """Force-reset to the default workspace, always rebinding paths."""
+    global _ACTIVE_PROFILE
+    _ACTIVE_PROFILE = None
+    _rebind_profile_paths()
+    _sync_imported_modules()
+
+
+# Consumer modules that capture path constants at import time; when they are
+# already loaded, keep their module-level names in sync so call-time reads
+# reflect the active profile regardless of import order.
+_PROFILE_SYNC_MODULES: dict[str, tuple[str, ...]] = {
+    "joborion.database": ("DB_PATH",),
+    "joborion.scoring.resume_tailor": ("RESUME_PATH", "TAILORED_DIR"),
+    "joborion.scoring.fit_scorer": ("RESUME_PATH",),
+    "joborion.scoring.document_converter": ("TAILORED_DIR",),
+    "joborion.scoring.cover_writer": ("COVER_LETTER_DIR", "RESUME_PATH"),
+    "joborion.wizard.init": (
+        "ENV_PATH", "PROFILE_PATH", "RESUME_PATH", "RESUME_PDF_PATH",
+        "SEARCH_CONFIG_PATH",
+    ),
+}
+
+
+def _sync_imported_modules() -> None:
+    """Push the rebound path constants into already-imported consumer modules."""
+    for module_name, attrs in _PROFILE_SYNC_MODULES.items():
+        module = sys.modules.get(module_name)
+        if module is None:
+            continue
+        for attr in attrs:
+            try:
+                setattr(module, attr, globals()[attr])
+            except KeyError:
+                continue
 
 
 def get_chrome_path() -> str:

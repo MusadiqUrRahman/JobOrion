@@ -78,14 +78,27 @@ def main(
         callback=_version_callback,
         is_eager=True,
     ),
+    profile: Optional[str] = typer.Option(
+        None, "--profile",
+        help="Run in an isolated workspace profile (created via `joborion profile create`).",
+    ),
 ) -> None:
     """[bold bright_cyan]JobOrion[/bold bright_cyan] — AI-powered job application pipeline."""
     if not version:
-        from joborion.config import load_env, ensure_dirs
+        import os
+        from joborion import config
         from joborion.database import init_db
 
-        load_env()
-        ensure_dirs()
+        name = profile or os.environ.get("JOBORION_PROFILE")
+        if name:
+            try:
+                config.set_profile(name)
+            except ValueError as e:
+                print_error(str(e))
+                raise typer.Exit(code=1)
+
+        config.load_env()
+        config.ensure_dirs()
         init_db()
 
 
@@ -878,21 +891,71 @@ def open() -> None:
     import subprocess
     import sys
 
-    from joborion.config import APP_DIR
+    from joborion.config import APP_DIR, get_profile, get_profile_dir
 
-    if not APP_DIR.exists():
-        print_error(f"Data folder not found: {APP_DIR}")
+    target = get_profile_dir() if get_profile() else APP_DIR
+
+    if not target.exists():
+        print_error(f"Data folder not found: {target}")
         print_warning("Run 'joborion init' first to set up your profile.")
         raise typer.Exit(1)
 
-    print_success(f"Opening: {APP_DIR}")
+    print_success(f"Opening: {target}")
 
     if sys.platform == "win32":
-        subprocess.Popen(["explorer", str(APP_DIR)])
+        subprocess.Popen(["explorer", str(target)])
     elif sys.platform == "darwin":
-        subprocess.Popen(["open", str(APP_DIR)])
+        subprocess.Popen(["open", str(target)])
     else:
-        subprocess.Popen(["xdg-open", str(APP_DIR)])
+        subprocess.Popen(["xdg-open", str(target)])
+
+
+# ---------------------------------------------------------------------------
+# Profiles
+# ---------------------------------------------------------------------------
+
+profile_app = typer.Typer(
+    name="profile",
+    help="Manage isolated workspaces (profiles) for separate job hunts.",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
+
+
+@profile_app.command("list")
+def profile_list() -> None:
+    """List all profiles. Use one with `joborion --profile <name> <command>`."""
+    from joborion.config import get_profile, list_profiles
+
+    active = get_profile()
+    for name in list_profiles():
+        mark = " *" if name == active else ""
+        print_info(f"{name}{mark}")
+    if active:
+        print_spacer()
+        print_info("Active profile is marked with *.")
+    else:
+        print_spacer()
+        print_info("No profile active — using the default workspace.")
+
+
+@profile_app.command("create")
+def profile_create(name: str) -> None:
+    """Create an isolated workspace and print next steps."""
+    from joborion import config
+
+    try:
+        config.set_profile(name)
+    except ValueError as e:
+        print_error(str(e))
+        raise typer.Exit(code=1)
+
+    config.ensure_dirs()
+    print_success(f"Profile '{name}' created at {config.get_profile_dir()}")
+    print_info(f"Next: run [bold bright_cyan]joborion --profile {name} init[/bold bright_cyan] to set it up.")
+
+
+app.add_typer(profile_app, name="profile")
 
 
 @app.command()
