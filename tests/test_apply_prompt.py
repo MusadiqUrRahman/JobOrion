@@ -51,3 +51,27 @@ class TestLocationCheck:
     def test_unknown_mode_falls_back_to_all(self):
         text = _build_location_check(PAKISTAN_PROFILE, _cfg("bogus"))
         assert "country_restricted" in text
+
+
+class TestScreeningSection:
+    def test_field_neutral_wording(self):
+        from joborion.apply.prompt import _build_screening_section
+        profile = {
+            "personal": {"city": "mardan"},
+            "work_authorization": {"legally_authorized_to_work": True},
+            "experience": {},
+        }
+        text = _build_screening_section(profile)
+        assert "this field" in text
+        assert "Software engineers learn tools fast" not in text
+        assert "pick up new tools quickly" in text
+
+    def test_uses_target_role(self):
+        from joborion.apply.prompt import _build_screening_section
+        profile = {
+            "personal": {"city": "mardan"},
+            "work_authorization": {"legally_authorized_to_work": True},
+            "experience": {"target_role": "Registered Nurse", "years_of_experience_total": "5"},
+        }
+        text = _build_screening_section(profile)
+        assert "Registered Nurse" in text

@@ -238,8 +238,18 @@ def _setup_searches() -> None:
     roles = [r.strip() for r in roles_raw.split(",") if r.strip()]
 
     if not roles:
-        console.print("[yellow]No roles provided. Using a default set.[/yellow]")
-        roles = ["Software Engineer"]
+        # Fall back to the profile's target role so searches follow the
+        # user's field (works for any profession, not just tech).
+        try:
+            profile = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            profile = {}
+        target_role = ((profile.get("experience") or {}).get("target_role") or "").strip()
+        if target_role:
+            roles = [target_role]
+            console.print(f"[dim]Using your target role: [bold]{target_role}[/bold][/dim]")
+        else:
+            console.print("[yellow]No roles provided and no target role set.[/yellow]")
 
     # Build YAML content
     lines = [

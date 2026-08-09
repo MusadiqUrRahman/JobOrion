@@ -12,16 +12,6 @@ import re
 class GoalParser:
     """Parses natural language goals into structured execution parameters."""
 
-    # Tech keywords to extract from goal text
-    _TECH_KEYWORDS = [
-        "python", "java", "javascript", "typescript", "go", "golang", "rust",
-        "c++", "c#", "react", "angular", "vue", "node", "django", "fastapi",
-        "rails", "spring", "docker", "kubernetes", "aws", "gcp", "azure",
-        "data", "ml", "machine learning", "ai", "devops", "backend", "frontend",
-        "full stack", "fullstack", "senior", "junior", "lead", "staff",
-        "principal", "architect", "engineer", "developer", "sre", "platform",
-    ]
-
     # Keywords that signal high minimum score
     _HIGH_SCORE_KEYWORDS = ["best", "top", "high", "excellent", "senior"]
     _GOOD_SCORE_KEYWORDS = ["good", "solid", "strong"]
@@ -50,9 +40,9 @@ class GoalParser:
         }
 
     def _extract_query(self, goal_lower: str) -> str:
-        """Extract search query terms from goal."""
-        found = [kw for kw in self._TECH_KEYWORDS if kw in goal_lower]
-        return " ".join(found) if found else ""
+        """Extract search query terms from goal (works for any field)."""
+        from joborion.agent.query import extract_query
+        return extract_query(goal_lower)
 
     def _extract_filters(self, goal_lower: str) -> dict:
         """Extract filters (remote, salary, min_score)."""

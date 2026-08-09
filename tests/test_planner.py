@@ -26,6 +26,11 @@ class TestPlanner:
         search_step = next(s for s in plan.steps if s.tool == "scrape_jobspy")
         assert "python" in search_step.params.get("search_query", "")
 
+    def test_plan_with_non_tech_query(self):
+        plan = self.planner.plan("Find 10 remote accounting jobs")
+        search_step = next(s for s in plan.steps if s.tool == "scrape_jobspy")
+        assert search_step.params.get("search_query", "") == "accounting"
+
     def test_plan_tailor_goal(self):
         plan = self.planner.plan("Find and tailor resume for Python jobs")
         tools = [s.tool for s in plan.steps]

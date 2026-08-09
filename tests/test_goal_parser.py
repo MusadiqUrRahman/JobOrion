@@ -75,8 +75,17 @@ class TestGoalParser:
         assert result["limits"]["max_applications"] == 3
 
     def test_no_match_defaults(self):
-        result = self.parser.parse("hello world")
+        result = self.parser.parse("find me some jobs")
         assert result["query"] == ""
         assert result["filters"]["remote"] is False
         assert result["filters"]["min_salary"] is None
         assert result["limits"]["max_jobs"] is None
+
+    def test_extract_query_any_field(self):
+        result = self.parser.parse("Find 10 remote accountant jobs")
+        assert result["query"] == "accountant"
+
+    def test_extract_query_non_tech_role(self):
+        result = self.parser.parse("search senior data analyst roles")
+        assert "data analyst" in result["query"]
+        assert "senior" in result["query"]

@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Added
+- Dynamic agent loop (`joborion run --goal "..." --autonomous`): the LLM picks
+  each tool based on observed results, self-corrects on errors, and stops when
+  the goal is met or budget limits are reached. `--agentic` remains as an alias.
+- Field-agnostic goal search: query extraction works for any profession
+  (accountant, nurse, designer, ...), falling back to the profile's target role.
+
 ## [0.4.0] - 2026-08-08
 
 ### Added

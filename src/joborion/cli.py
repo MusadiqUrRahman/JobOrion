@@ -336,7 +336,10 @@ def run(
     ),
     goal: Optional[str] = typer.Option(None, "--goal", "-g", help="Natural language goal."),
     auto: bool = typer.Option(False, "--auto", help="Autonomous mode (full loop)."),
-    agentic: bool = typer.Option(False, "--agentic", help="Agentic mode (dynamic tool selection loop)."),
+    autonomous: bool = typer.Option(
+        False, "--autonomous", "--agentic",
+        help="Run on its own: decide every step, adapt to results, stop when done.",
+    ),
     semi: bool = typer.Option(False, "--semi", help="Semi-autonomous: approve before each application."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip all approval gates."),
     min_score: int = typer.Option(7, "--min-score", help="Minimum fit score."),
@@ -380,20 +383,21 @@ def run(
 
         orch = Orchestrator(goal=goal, max_cost=5.0, auto=auto, yes=yes, semi=semi)
 
-        if agentic:
-            with print_spinner("Running agentic loop..."):
+        if autonomous:
+            with print_spinner("Running autonomously..."):
                 result = orch.execute_agentic()
             summary = result.get("summary", "")
             report = result.get("report", "")
+            completed = result.get("status") == "completed"
             panel_title = (
-                "[bold bright_green]🤖 Agentic Run Complete[/bold bright_green]"
-                if result.get("status") == "completed"
-                else "[bold yellow]🤖 Agentic Run Stopped[/bold yellow]"
+                "[bold bright_green]🤖 Autonomous Run Complete[/bold bright_green]"
+                if completed
+                else "[bold yellow]🤖 Autonomous Run Stopped[/bold yellow]"
             )
             console.print(make_gradient_panel(
                 f"{summary}\n\n{report}",
                 title=panel_title,
-                border_style="bright_green" if result.get("status") == "completed" else "yellow",
+                border_style="bright_green" if completed else "yellow",
                 padding=(1, 2),
             ))
         elif auto:

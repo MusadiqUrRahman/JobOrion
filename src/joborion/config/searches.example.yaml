@@ -32,15 +32,17 @@ defaults:
   search_mode: all
 
 # Queries -- each has a query string and priority tier.
+# Works for ANY field: put your own role titles here (e.g. 'Accountant',
+# 'Registered Nurse', 'Graphic Designer', 'Data Analyst', 'Electrician').
 # Tier 1: High-priority exact matches (searched first, highest precision)
 # Tier 2: Strong matches, broader scope
 # Tier 3: Wide net, high volume, lower precision
 queries:
-  - query: "software engineer"
+  - query: "Accountant"
     tier: 1
-  - query: "python developer"
+  - query: "Senior Accountant"
     tier: 2
-  - query: "machine learning engineer"
+  - query: "Financial Analyst"
     tier: 2
 
 # Locations to search. Each location runs against every query above.

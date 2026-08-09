@@ -11,8 +11,11 @@ from joborion.cli import app
 runner = CliRunner()
 
 
-class TestRunAgenticFlag:
-    def test_run_declares_agentic_flag(self, cli_flags):
+class TestRunAutonomousFlag:
+    def test_run_declares_autonomous_flag(self, cli_flags):
+        assert "--autonomous" in cli_flags["run"]
+
+    def test_run_keeps_agentic_alias(self, cli_flags):
         assert "--agentic" in cli_flags["run"]
 
 

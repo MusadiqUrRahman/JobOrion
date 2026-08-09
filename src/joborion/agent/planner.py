@@ -345,16 +345,9 @@ class Planner:
         return steps
 
     def _extract_query(self, goal_lower: str) -> str:
-        """Extract a search query from the goal text."""
-        # Simple heuristic: look for job-related keywords
-        tech_keywords = [
-            "python", "java", "javascript", "typescript", "go", "rust", "c++",
-            "react", "angular", "vue", "node", "django", "fastapi", "rails",
-            "data", "ml", "machine learning", "ai", "devops", "backend", "frontend",
-            "full stack", "senior", "junior", "lead", "staff", "principal",
-        ]
-        found = [kw for kw in tech_keywords if kw in goal_lower]
-        return " ".join(found) if found else ""
+        """Extract a search query from the goal text for any field."""
+        from joborion.agent.query import extract_query
+        return extract_query(goal_lower)
 
     def _extract_min_score(self, goal_lower: str) -> int:
         """Extract minimum score threshold from goal text."""

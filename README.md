@@ -100,12 +100,20 @@ prefer.
 
 ### Advanced
 ```bash
-joborion run --goal "your goal"  # AI plans and executes from a description
-joborion apply                   # Auto-apply via browser (Tier 3)
-joborion plan "your goal"        # Preview plan without executing
-joborion dashboard               # Generate HTML dashboard
-joborion jobs                    # Browse jobs from the database
+joborion run --goal "your goal"        # AI plans and executes from a description
+joborion run --goal "your goal" --autonomous  # Run on its own: decide every step,
+                                       #   adapt to results, stop when done
+joborion apply                         # Auto-apply via browser (Tier 3)
+joborion plan "your goal"              # Preview plan without executing
+joborion dashboard                     # Generate HTML dashboard
+joborion jobs                          # Browse jobs from the database
 ```
+
+JobOrion is **not tied to any one field**. Searches are driven by your
+profile's target role and skills — whatever profession you belong to
+(accountant, nurse, designer, engineer, electrician, ...), goals like
+`joborion run --goal "find 10 remote accountant jobs"` extract the right
+query and find matching jobs.
 
 ## Configuration
 
