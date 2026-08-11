@@ -48,3 +48,4 @@ Command/evidence that proves the fix works.
 | 005 | application_url stored as literal string "None" for jobs without an apply URL | open | discovery | str(None) guard in jobspy.py:234; SQL update for existing rows |
 | 006 | OpenRouter 200 responses missing `choices` key raise KeyError -> job scored 0 | open | evaluate | defensive parse in llm.py:150 |
 | 007 | LLM failover gets stuck on a dead provider (backend index never reset after generic exception) | open | tailor/evaluate | backoff + reset index to 0 in llm.py generic except branch |
+| 008 | `apply --url` matches no job when apply_status is NULL (SQL NULL != trap) | open | apply | `(apply_status IS NULL OR apply_status != 'in_progress')` in runner.py |
