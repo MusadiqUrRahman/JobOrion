@@ -20,8 +20,17 @@ before starting work.
 | Verification Before Completion | Before claiming anything is done | `skills/verification-before-completion.md` |
 | Subagent-Driven Dev | When a phase has 3+ independent tasks | `skills/subagent-driven-development.md` |
 | Plan Orchestrate | When converting plans to execution | `skills/plan-orchestrate.md` |
+| Bug Knowledge | When any bug/error appears — check the KB first | `skills/bug-knowledge.md` |
 
 Full index: `skills/README.md`
+
+## Bug Knowledge Base
+
+`docs/bug-knowledge/` is the registry of every confirmed issue and its fix.
+**Whenever any error or unexpected behavior appears, check it FIRST** (see
+`skills/bug-knowledge.md`): grep `index.md` + the `## Symptom` lines, apply the
+documented fix if matched, otherwise investigate and log a new `NNN-<slug>.md`
+file before the fix is done.
 
 ## Development Workflow
 

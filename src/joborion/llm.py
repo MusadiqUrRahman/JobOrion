@@ -11,6 +11,7 @@ Users only paste API keys. Base URLs and models are pre-configured.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -38,6 +39,10 @@ def estimate_call_cost(tokens_in: int = 0, tokens_out: int = 0) -> float:
 
 class BudgetExceeded(Exception):
     """Raised when an LLM call would exceed the configured budget."""
+
+
+class LLMError(Exception):
+    """Raised when a provider returns an unusable response (transient)."""
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +152,15 @@ class OpenAICompatBackend(LLMBackend):
                 headers=headers,
             )
             resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"]
+            data = resp.json()
+            try:
+                content = data["choices"][0]["message"]["content"]
+            except (KeyError, IndexError, TypeError) as exc:
+                raise LLMError(
+                    f"{self.name} returned an unusable response (no message "
+                    f"content): {json.dumps(data)[:300]}"
+                ) from exc
+            return content
 
 
 class GeminiBackend(LLMBackend):
@@ -461,6 +474,16 @@ class LLMClient:
                         self.backends[self._backend_index - 1].name,
                         exc, self._current.name,
                     )
+                    continue
+                if attempt < _MAX_RETRIES - 1:
+                    wait = min(_RATE_LIMIT_BASE_WAIT * (2 ** attempt), 60)
+                    log.warning(
+                        "%s failed: %s — all providers exhausted. "
+                        "Retrying in %ds (attempt %d/%d).",
+                        self._current.name, exc, wait, attempt + 1, _MAX_RETRIES,
+                    )
+                    time.sleep(wait)
+                    self._backend_index = 0
                     continue
                 raise
 

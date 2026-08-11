@@ -14,6 +14,7 @@ load and follow it.
 | [verification-before-completion](verification-before-completion.md) | Before claiming any task is done | No completion claims without fresh verification evidence |
 | [subagent-driven-development](subagent-driven-development.md) | When a phase has 3+ independent tasks | No monolithic implementation — dispatch per task |
 | [plan-orchestrate](plan-orchestrate.md) | When converting a plan into executable actions | No action without budget estimate and dependency check |
+| [bug-knowledge](bug-knowledge.md) | When any bug, error, or unexpected behavior appears | No fix without checking the KB first; no unknown bug fixed without logging it |
 
 ## How Skills Work
 
