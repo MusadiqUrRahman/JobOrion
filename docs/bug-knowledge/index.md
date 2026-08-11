@@ -49,3 +49,4 @@ Command/evidence that proves the fix works.
 | 006 | OpenRouter 200 responses missing `choices` key raise KeyError -> job scored 0 | open | evaluate | defensive parse in llm.py:150 |
 | 007 | LLM failover gets stuck on a dead provider (backend index never reset after generic exception) | open | tailor/evaluate | backoff + reset index to 0 in llm.py generic except branch |
 | 008 | `apply --url` matches no job when apply_status is NULL (SQL NULL != trap) | open | apply | `(apply_status IS NULL OR apply_status != 'in_progress')` in runner.py |
+| 009 | First apply run copies entire user Chrome profile (11 GB, ~5.5 min) | open | apply | copy minimal profile surface in browser.py setup_worker_profile |
