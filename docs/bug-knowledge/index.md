@@ -50,3 +50,6 @@ Command/evidence that proves the fix works.
 | 007 | LLM failover gets stuck on a dead provider (backend index never reset after generic exception) | open | tailor/evaluate | backoff + reset index to 0 in llm.py generic except branch |
 | 008 | `apply --url` matches no job when apply_status is NULL (SQL NULL != trap) | open | apply | `(apply_status IS NULL OR apply_status != 'in_progress')` in runner.py |
 | 009 | First apply run copies entire user Chrome profile (11 GB, ~5.5 min) | open | apply | copy minimal profile surface in browser.py setup_worker_profile |
+| 010 | Cross-frame reCAPTCHA click misses using page.mouse + bounding_box (frame-relative coords); use locator.click() | fixed | apply | fill_submit.py; verified token 1294 chars + application/complete/1828281 |
+| 011 | ai_sites provider stores 0 jobs (CAPTCHA everywhere) then hits Gemini 429 free-tier quota and hangs | open | discovery | disable ai_sites in sources.yaml; cap LLM calls per provider run |
+| 012 | Eligibility classifier misses US state / CA province tokens (Ontario, Texas, ON, CAN) so restricted-remote jobs pass the gate and waste scoring cost | open | evaluate | extend COMMON_COUNTRIES with state/province names + abbreviations |

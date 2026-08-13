@@ -7,6 +7,7 @@ from joborion.eligibility import (
     REASON_NOT_REMOTE,
     evaluate_job,
     location_country,
+    url_location,
 )
 
 PAKISTAN_PROFILE = {
@@ -43,6 +44,20 @@ class TestLocationCountry:
 
     def test_unknown_returns_none(self):
         assert location_country("Somewhere else entirely") is None
+
+    def test_bangalore_resolves_to_india(self):
+        assert location_country("Remote, Bangalore") == "india"
+
+    def test_uppercase_codes_resolve(self):
+        assert location_country("Toronto, ON, CA") == "canada"
+        assert location_country("Boston, MA") == "us"
+        assert location_country("Berlin, DE") == "germany"
+        assert location_country("São Paulo, BR") == "brazil"
+
+    def test_lowercase_words_not_treated_as_codes(self):
+        assert location_country("Remote, in Pakistan") == "pakistan"
+        assert location_country("Worldwide") is None
+        assert location_country("Remote") is None
 
 
 class TestRemoteMode:
@@ -175,3 +190,41 @@ class TestUnknownLocation:
     def test_unknown_mode_defaults_to_all(self):
         r = evaluate_job(_job("New York, USA"), PAKISTAN_PROFILE, mode="bogus")
         assert r.eligible is False
+
+
+class TestUrlLocation:
+    def test_extracts_workday_path(self):
+        url = ("https://thomsonreuters.wd5.myworkdayjobs.com/External_Career_Site/"
+               "job/Brazil-So-Paulo-So-Paulo/Senior-Software-Engineer--AI-Platform_JREQ200885")
+        assert url_location(url) == "Brazil So Paulo So Paulo"
+
+    def test_no_job_segment_returns_empty(self):
+        assert url_location("https://example.com/careers") == ""
+
+    def test_none_returns_empty(self):
+        assert url_location(None) == ""
+
+    def test_remote_bangalore_blocked_via_url(self):
+        job = {"location": "", "application_url": "https://job-boards.greenhouse.io/gitlab/jobs/8556658002"}
+        # Greenhouse URL has no /job/<loc>/ segment, so this stays eligible (can't rule out)
+        assert evaluate_job(job, PAKISTAN_PROFILE, mode="remote").eligible is True
+
+    def test_blank_location_uses_url_fallback(self):
+        job = {
+            "location": "",
+            "url": ("https://thomsonreuters.wd5.myworkdayjobs.com/External_Career_Site/"
+                    "job/Canada-Toronto-Ontario/AI-Engineering-Lead--Product-Analytics_JREQ201724"),
+        }
+        r = evaluate_job(job, PAKISTAN_PROFILE, mode="remote")
+        assert r.eligible is False
+        assert r.reason == REASON_NOT_REMOTE
+
+    def test_blank_location_onsite_foreign_url_all_mode(self):
+        job = {
+            "location": "",
+            "application_url": ("https://modernatx.wd1.myworkdayjobs.com/M_tx/job/"
+                                "Warsaw---Poland/Senior-AI-Engineer_R19416"),
+        }
+        r = evaluate_job(job, PAKISTAN_PROFILE, mode="all")
+        assert r.eligible is False
+        assert r.reason == REASON_LOCATION
