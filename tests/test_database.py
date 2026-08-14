@@ -260,6 +260,23 @@ class TestGetJobsByStage:
         result = get_jobs_by_stage(conn, stage="discovered")
         assert isinstance(result[0], dict)
 
+    def test_pending_score_includes_zero_scores(self, conn):
+        jobs = [
+            {"url": "https://example.com/1", "title": "Job 1",
+             "description": "desc"},
+            {"url": "https://example.com/2", "title": "Job 2",
+             "description": "desc"},
+        ]
+        store_jobs(conn, jobs, site="test", strategy="api")
+        conn.execute("UPDATE jobs SET fit_score = 0 WHERE url = 'https://example.com/1'")
+        conn.execute(
+            "UPDATE jobs SET full_description = 'desc' WHERE url IN (?, ?)",
+            ("https://example.com/1", "https://example.com/2"),
+        )
+        conn.commit()
+        result = get_jobs_by_stage(conn, stage="pending_score")
+        assert len(result) == 2
+
 
 # ── get_stats ──────────────────────────────────────────────────────────
 

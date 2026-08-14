@@ -53,3 +53,4 @@ Command/evidence that proves the fix works.
 | 010 | Cross-frame reCAPTCHA click misses using page.mouse + bounding_box (frame-relative coords); use locator.click() | fixed | apply | fill_submit.py; verified token 1294 chars + application/complete/1828281 |
 | 011 | ai_sites provider stores 0 jobs (CAPTCHA everywhere) then hits Gemini 429 free-tier quota and hangs | open | discovery | disable ai_sites in sources.yaml; cap LLM calls per provider run |
 | 012 | Eligibility classifier misses US state / CA province tokens (Ontario, Texas, ON, CAN) so restricted-remote jobs pass the gate and waste scoring cost | open | evaluate | extend COMMON_COUNTRIES with state/province names + abbreviations |
+| 013 | Truncated LLM score response (no SCORE line) parsed as 0, persisted, then never rescored | fixed | evaluate | retry with terse prompt, max_tokens 1024, skip persisting score 0, pending_score matches fit_score=0 |

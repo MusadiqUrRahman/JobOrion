@@ -190,8 +190,13 @@ class TestScoreSingleJobTool:
         from joborion.tools.scoring import ScoreSingleJobTool
         tool = ScoreSingleJobTool()
         result = tool.execute(url="https://example.com/job/1")
-        assert result.status == "ok"
-        assert result.details["score"] == 0
+        assert result.status == "error"
+        assert "LLM error: timeout" in result.error
+
+        row = db.execute("SELECT fit_score FROM jobs WHERE url = ?",
+                         ("https://example.com/job/1",)).fetchone()
+        assert row[0] is not None
+        assert row[0] != 0
 
 
 class TestScoreBatchTool:

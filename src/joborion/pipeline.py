@@ -349,7 +349,7 @@ class _ConcurrentStageTracker:
 # SQL to count pending work for each stage
 _PENDING_SQL: dict[str, str] = {
     "details": "SELECT COUNT(*) FROM jobs WHERE detail_scraped_at IS NULL",
-    "evaluate": "SELECT COUNT(*) FROM jobs WHERE full_description IS NOT NULL AND fit_score IS NULL",
+    "evaluate": "SELECT COUNT(*) FROM jobs WHERE full_description IS NOT NULL AND (fit_score IS NULL OR fit_score = 0)",
     "tailor": (
         "SELECT COUNT(*) FROM jobs WHERE fit_score >= ? "
         "AND full_description IS NOT NULL "

@@ -634,7 +634,7 @@ def get_jobs_by_stage(conn: sqlite3.Connection | None = None,
         "pending_detail": "detail_scraped_at IS NULL",
         "enriched": "full_description IS NOT NULL",
         "pending_score": (
-            "full_description IS NOT NULL AND fit_score IS NULL "
+            "full_description IS NOT NULL AND (fit_score IS NULL OR fit_score = 0) "
             "AND COALESCE(apply_status, '') NOT IN ('expired', 'manual')"
         ),
         "scored": "fit_score IS NOT NULL",

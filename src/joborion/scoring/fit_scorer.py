@@ -50,6 +50,15 @@ SCORE: [1-10]
 KEYWORDS: [comma-separated ATS keywords from the job description that match or could match the candidate]
 REASONING: [2-3 sentences explaining the score; if ineligible, say so explicitly]"""
 
+# Larger output budget than the old 512 so the REASONING section (and the
+# SCORE line that follows it) isn't cut off mid-response.
+_SCORE_MAX_TOKENS = 1024
+
+# Terse follow-up used when a response is truncated / format-breaking and has
+# no SCORE line. Cheap enough to retry without re-paying for the full context.
+_SCORE_RETRIES = 2
+_SCORE_ONLY_PROMPT = "Output only the score, as exactly: SCORE: [1-10]"
+
 
 def _parse_score_response(response: str) -> dict:
     """Parse the LLM's score response into structured data.
@@ -101,6 +110,29 @@ def _candidate_constraints() -> dict:
     return constraints_from_profile(profile)
 
 
+def _chat_for_score(client, messages: list[dict]) -> dict:
+    """Run the scoring chat, retrying when the response has no SCORE line.
+
+    The scoring prompt asks for SCORE/KEYWORDS/REASONING, but models
+    occasionally write long prose first and the response gets truncated
+    before the SCORE line. A terse follow-up ("output only the score")
+    normally recovers the number. Returns the parsed result; score stays 0
+    only when every attempt was unparseable.
+    """
+    result = _parse_score_response(client.chat(messages, max_tokens=_SCORE_MAX_TOKENS, temperature=0.2))
+    for _ in range(_SCORE_RETRIES):
+        if result["score"] > 0:
+            return result
+        log.warning(
+            "Score response unparseable (no SCORE line); retrying with terse prompt"
+        )
+        result = _parse_score_response(
+            client.chat(messages + [{"role": "user", "content": _SCORE_ONLY_PROMPT}],
+                        max_tokens=32, temperature=0.2)
+        )
+    return result
+
+
 def score_job(resume_text: str, job: dict, constraints: dict | None = None,
               mode: str = "all") -> dict:
     """Score a single job against the resume.
@@ -149,8 +181,7 @@ def score_job(resume_text: str, job: dict, constraints: dict | None = None,
 
     try:
         client = get_client()
-        response = client.chat(messages, max_tokens=512, temperature=0.2)
-        result = _parse_score_response(response)
+        result = _chat_for_score(client, messages)
         result["rejection_reason"] = None
         result["rejection_suggestion"] = None
         return result
@@ -226,6 +257,12 @@ def score_jobs(limit: int = 0, rescore: bool = False) -> dict:
     # Write scores to DB
     now = datetime.now(timezone.utc).isoformat()
     for r in results:
+        if r["score"] == 0:
+            # Scoring failed (LLM/parse error). Leave fit_score NULL so the
+            # job is picked up again by a later run instead of being frozen
+            # at a fake 0.
+            log.warning("Not persisting score 0 for %s (retry next run)", r["url"])
+            continue
         conn.execute(
             "UPDATE jobs SET fit_score = ?, score_reasoning = ?, scored_at = ?, "
             "rejection_reason = ?, rejection_suggestion = ? WHERE url = ?",

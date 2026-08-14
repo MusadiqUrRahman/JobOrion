@@ -37,6 +37,16 @@ class ScoreSingleJobTool(Tool):
             job = dict(zip(row.keys(), row))
             result = score_job(resume_text, job)
 
+            if result["score"] == 0:
+                return ActionResult(
+                    action=self.name,
+                    status="error",
+                    details={"url": url},
+                    cost=0.0,
+                    duration_ms=int((time.time() - t0) * 1000),
+                    error=f"Scoring failed: {result['reasoning'][:200]}",
+                )
+
             now = datetime.now(timezone.utc).isoformat()
             conn.execute(
                 "UPDATE jobs SET fit_score = ?, score_reasoning = ?, scored_at = ?, "
