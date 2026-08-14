@@ -83,7 +83,7 @@ ALSO BANNED (meta-commentary the validator catches):
 BANNED PUNCTUATION: No em dashes (—) or en dashes (–). Use commas or periods.
 
 VOICE:
-- Write like a real engineer emailing someone they respect. Not formal, not casual. Just direct.
+- Write like a strong professional emailing someone they respect. Not formal, not casual. Just direct.
 - NEVER narrate or explain what you're doing. BAD: "This demonstrates my commitment to X." GOOD: Just state the fact and move on.
 - NEVER hedge. BAD: "might address some of your challenges." GOOD: "solves the same problem your team is facing."
 - Every sentence should contain either a number, a tool name, or a specific outcome. If it doesn't, cut it.

@@ -63,7 +63,15 @@ def _build_tailor_prompt(profile: dict) -> str:
     education = profile.get("experience", {})
     education_level = education.get("education_level", "")
 
-    return f"""You are a senior technical recruiter rewriting a resume to get this person an interview.
+    # Build the skills JSON schema from the profile's actual skill categories so
+    # any profession's taxonomy (Languages, Clinical Skills, Certifications...)
+    # flows through instead of a hardcoded software-only one.
+    skill_cats = [c.replace("_", " ").title() for c in (boundary or {})]
+    if not skill_cats:
+        skill_cats = ["Skills"]
+    skills_schema = ", ".join(f'"{cat}":"..."' for cat in skill_cats)
+
+    return f"""You are a senior hiring professional in the target role's field, rewriting a resume to get this person an interview.
 
 Take the base resume and job description. Return a tailored resume as a JSON object.
 
@@ -76,7 +84,7 @@ Take the base resume and job description. Return a tailored resume as a JSON obj
 ## SKILLS BOUNDARY (real skills only):
 {skills_block}
 
-You MAY add 2-3 closely related tools (Kubernetes if Docker, Terraform if AWS, Redis if PostgreSQL). No unrelated languages/frameworks.
+You MAY add 2-3 closely related skills the candidate plausibly has (e.g. adjacent tools, platforms, or methods in the same domain). No unrelated skills.
 
 ## TAILORING RULES:
 
@@ -93,8 +101,8 @@ PROJECTS: Reorder by relevance. Drop irrelevant projects entirely.
 BULLETS: Strong verb + what you built + quantified impact. Vary verbs (Built, Designed, Implemented, Reduced, Automated, Deployed, Operated, Optimized). Most relevant first. Max 4 per section.
 
 ## VOICE:
-- Write like a real engineer. Short, direct.
-- GOOD: "Automated financial reporting with Python + API integrations, cut processing time from 10 hours to 2"
+- Write like a strong professional in the target field. Short, direct.
+- GOOD: "Automated weekly financial reporting, cut processing time from 10 hours to 2"
 - BAD: "Leveraged cutting-edge AI technologies to drive transformative operational efficiencies"
 - BANNED WORDS (using ANY of these = validation failure — do not use them even once):
   {banned_str}
@@ -109,7 +117,7 @@ BULLETS: Strong verb + what you built + quantified impact. Vary verbs (Built, De
 
 ## OUTPUT: Return ONLY valid JSON. No markdown fences. No commentary. No "here is" preamble.
 
-{{"title":"Role Title","summary":"2-3 tailored sentences.","skills":{{"Languages":"...","Frameworks":"...","DevOps & Infra":"...","Databases":"...","Tools":"..."}},"experience":[{{"header":"Title at Company","subtitle":"Tech | Dates","bullets":["bullet 1","bullet 2","bullet 3","bullet 4"]}}],"projects":[{{"header":"Project Name - Description","subtitle":"Tech | Dates","bullets":["bullet 1","bullet 2"]}}],"education":"{school} | {education_level}"}}"""
+{{"title":"Role Title","summary":"2-3 tailored sentences.","skills":{{{skills_schema}}},"experience":[{{"header":"Title at Company","subtitle":"Skills | Dates","bullets":["bullet 1","bullet 2","bullet 3","bullet 4"]}}],"projects":[{{"header":"Project Name - Description","subtitle":"Skills | Dates","bullets":["bullet 1","bullet 2"]}}],"education":"{school} | {education_level}"}}"""
 
 
 def _build_judge_prompt(profile: dict) -> str:

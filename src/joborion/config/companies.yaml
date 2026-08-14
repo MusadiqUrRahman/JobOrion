@@ -6,6 +6,13 @@
 # slug:     board slug used in the platform's public jobs API
 # region:   "global" or a country; used for location filtering
 # tags:     remote-friendly / sponsorship / hybrid where known
+#
+# PROFESSION-AGNOSTIC: every ATS board posts ALL roles (finance, HR, sales,
+# ops, nursing, design...) for that company, not just engineering. The
+# `industries` tag drives the `industries` preference filter in the wizard —
+# set your preferred industries there (or in preferences.yaml) and only
+# matching companies are searched. Add companies from your own field by
+# copying a block and verifying the slug against the public API.
 
 companies:
 
@@ -163,6 +170,70 @@ companies:
     region: usa
     tags: [hybrid]
 
+  coursera:
+    platform: greenhouse
+    slug: coursera
+    name: Coursera
+    industries: [education, edtech]
+    region: global
+    tags: [remote-friendly]
+
+  khanacademy:
+    platform: greenhouse
+    slug: khanacademy
+    name: Khan Academy
+    industries: [education, non-profit]
+    region: global
+    tags: [remote-friendly]
+
+  chime:
+    platform: greenhouse
+    slug: chime
+    name: Chime
+    industries: [fintech, banking]
+    region: usa
+    tags: []
+
+  sofi:
+    platform: greenhouse
+    slug: sofi
+    name: SoFi
+    industries: [fintech, banking]
+    region: usa
+    tags: [hybrid]
+
+  peloton:
+    platform: greenhouse
+    slug: peloton
+    name: Peloton
+    industries: [fitness, consumer-goods]
+    region: usa
+    tags: []
+
+  sweetgreen:
+    platform: greenhouse
+    slug: sweetgreen
+    name: Sweetgreen
+    industries: [restaurant, food-retail]
+    region: usa
+    tags: []
+
+  thenewyorktimes:
+    platform: greenhouse
+    slug: thenewyorktimes
+    name: The New York Times
+    industries: [media, news]
+    region: usa
+    tags: []
+
+  axios:
+    platform: greenhouse
+    slug: axios
+    name: Axios
+    industries: [media, news]
+    region: usa
+    tags: [remote-friendly]
+
   # ── Lever ───────────────────────────────────────────────────────────────
 
   spotify:
@@ -294,6 +365,22 @@ companies:
     industries: [hr, payroll]
     region: global
     tags: [remote-friendly, sponsorship]
+
+  lemonade:
+    platform: ashby
+    slug: lemonade
+    name: Lemonade
+    industries: [insurance, fintech]
+    region: usa
+    tags: [remote-friendly]
+
+  honeybook:
+    platform: ashby
+    slug: honeybook
+    name: HoneyBook
+    industries: [small-business, saas]
+    region: usa
+    tags: [remote-friendly]
 
   # ── SmartRecruiters ─────────────────────────────────────────────────────
 
