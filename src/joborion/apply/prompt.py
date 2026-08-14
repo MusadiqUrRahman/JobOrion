@@ -457,6 +457,7 @@ After injecting: browser_wait_for time: 2, then snapshot.
 --- MANUAL FALLBACK ---
 You should ONLY be here if CapSolver createTask returned errorId > 0. If you haven't tried CapSolver yet, GO BACK and try it first.
 If CapSolver genuinely failed (errorId > 0):
+0. reCAPTCHA v2 CHECKBOX ("I'm not a robot"): With a clean session this box usually passes with a single REAL click -- no image challenge and no API needed. Switch into the reCAPTCHA iframe (the checkbox lives in its own iframe), locate the checkbox (role/aria-label "I'm not a robot"), and click it with a genuine mouse click at its coordinates. Wait 3-5s, then check whether [name=g-recaptcha-response] got a value. It is FINE to do this even though CapSolver failed -- the checkbox is a risk-score check, not a solver puzzle. If an image challenge appears instead, go to step 1.
 1. Audio challenge: Look for "audio" or "accessibility" button -> click it for an easier challenge.
 2. Text/logic puzzles: Solve them yourself. Think step by step. Common tricks: "All but 9 die" = 9 left. "3 sisters and 4 brothers, how many siblings?" = 7.
 3. Simple text captchas ("What is 3+7?", "Type the word") -> solve them.

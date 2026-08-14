@@ -60,7 +60,10 @@ providers:
 
   # AI-site aggregation boards (jobs listed across many ATS portals).
   # Reliability: low. Cost: LLM-heavy (est. ~$0.0006/job).
+  # Disabled: every board sits behind CAPTCHA and the LLM parse exhausts the
+  # Gemini free-tier quota (see docs/bug-knowledge/011). Enable once a working
+  # CAPSOLVER_API_KEY is configured.
   ai_sites:
-    enabled: true
+    enabled: false
     priority: 60
     max_results: 25
