@@ -234,6 +234,78 @@ companies:
     region: usa
     tags: [remote-friendly]
 
+  scaleai:
+    platform: greenhouse
+    slug: scaleai
+    name: Scale AI
+    industries: [artificial-intelligence, data, developer-tools]
+    region: global
+    tags: [remote-friendly]
+
+  databricks:
+    platform: greenhouse
+    slug: databricks
+    name: Databricks
+    industries: [artificial-intelligence, data, cloud]
+    region: global
+    tags: [hybrid]
+
+  discord:
+    platform: greenhouse
+    slug: discord
+    name: Discord
+    industries: [social-media, gaming, internet]
+    region: global
+    tags: [remote-friendly]
+
+  mozilla:
+    platform: greenhouse
+    slug: mozilla
+    name: Mozilla
+    industries: [internet, browser, non-profit]
+    region: global
+    tags: [remote-friendly]
+
+  lyft:
+    platform: greenhouse
+    slug: lyft
+    name: Lyft
+    industries: [ride-hailing, transportation]
+    region: usa
+    tags: [hybrid]
+
+  squarespace:
+    platform: greenhouse
+    slug: squarespace
+    name: Squarespace
+    industries: [website-builder, saas]
+    region: usa
+    tags: []
+
+  intercom:
+    platform: greenhouse
+    slug: intercom
+    name: Intercom
+    industries: [customer-service, saas, ai]
+    region: global
+    tags: [remote-friendly]
+
+  brave:
+    platform: greenhouse
+    slug: brave
+    name: Brave
+    industries: [internet, browser, privacy]
+    region: global
+    tags: [remote-friendly]
+
+  vercel:
+    platform: greenhouse
+    slug: vercel
+    name: Vercel
+    industries: [developer-tools, cloud, ai]
+    region: global
+    tags: [remote-friendly]
+
   # ── Lever ───────────────────────────────────────────────────────────────
 
   spotify:
@@ -380,6 +452,78 @@ companies:
     name: HoneyBook
     industries: [small-business, saas]
     region: usa
+    tags: [remote-friendly]
+
+  cohere:
+    platform: ashby
+    slug: cohere
+    name: Cohere
+    industries: [artificial-intelligence, llm, research]
+    region: global
+    tags: [remote-friendly]
+
+  langchain:
+    platform: ashby
+    slug: langchain
+    name: LangChain
+    industries: [artificial-intelligence, developer-tools, agentic-ai]
+    region: global
+    tags: [remote-friendly]
+
+  writer:
+    platform: ashby
+    slug: writer
+    name: Writer
+    industries: [artificial-intelligence, generative-ai, saas]
+    region: global
+    tags: [remote-friendly]
+
+  cursor:
+    platform: ashby
+    slug: cursor
+    name: Cursor
+    industries: [artificial-intelligence, developer-tools, agentic-ai]
+    region: global
+    tags: [remote-friendly]
+
+  elevenlabs:
+    platform: ashby
+    slug: elevenlabs
+    name: ElevenLabs
+    industries: [artificial-intelligence, voice-ai, media]
+    region: global
+    tags: [remote-friendly]
+
+  perplexity:
+    platform: ashby
+    slug: perplexity
+    name: Perplexity
+    industries: [artificial-intelligence, search, llm]
+    region: global
+    tags: [remote-friendly]
+
+  synthesia:
+    platform: ashby
+    slug: synthesia
+    name: Synthesia
+    industries: [artificial-intelligence, video-ai, media]
+    region: global
+    tags: [remote-friendly]
+
+  n8n:
+    platform: ashby
+    slug: n8n
+    name: n8n
+    industries: [automation, developer-tools, agentic-ai]
+    region: global
+    tags: [remote-friendly]
+
+  lovable:
+    platform: ashby
+    slug: lovable
+    name: Lovable
+    industries: [artificial-intelligence, developer-tools, agentic-ai]
+    region: global
     tags: [remote-friendly]
 
   # ── SmartRecruiters ─────────────────────────────────────────────────────

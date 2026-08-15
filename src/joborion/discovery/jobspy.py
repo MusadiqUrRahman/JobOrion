@@ -116,6 +116,15 @@ def _location_ok(location: str | None, accept: list[str], reject: list[str]) -> 
     return False
 
 
+def _is_remote(row) -> bool:
+    """True when a result row is flagged remote by the board."""
+    is_remote = row.get("is_remote")
+    if is_remote is not None and str(is_remote) != "nan":
+        return bool(is_remote)
+    loc = str(row.get("location", ""))
+    return any(r in loc.lower() for r in ("remote", "anywhere", "work from home", "wfh", "distributed"))
+
+
 def _keep_remote_only(df) -> pd.DataFrame:
     """Return only remote rows from a results DataFrame.
 
@@ -340,12 +349,18 @@ def _run_one_search(
         log.info("[%s] 0 results", label)
         return {"new": 0, "existing": 0, "errors": 0, "filtered": 0, "total": 0, "label": label}
 
-    # Filter by location before storing
+    # Filter by location before storing. Remote jobs are accepted by their
+    # is_remote flag alone; location strings like "United States" must not
+    # sink genuinely remote listings before _keep_remote_only can run.
     before = len(df)
-    df = df[df.apply(lambda row: _location_ok(
-        str(row.get("location", "")) if str(row.get("location", "")) != "nan" else None,
-        accept_locs, reject_locs,
-    ), axis=1)]
+
+    def keep_row(row) -> bool:
+        if want_remote and _is_remote(row):
+            return True
+        loc = str(row.get("location", "")) if str(row.get("location", "")) != "nan" else None
+        return _location_ok(loc, accept_locs, reject_locs)
+
+    df = df[df.apply(keep_row, axis=1)]
     filtered = before - len(df)
 
     # Enforce remote-only when requested (belt-and-suspenders: some boards

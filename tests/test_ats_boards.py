@@ -235,6 +235,65 @@ class TestAtsBoards:
         selected = provider._select_companies({})
         assert [c["slug"] for c in selected] == ["spotify"]
 
+    def test_orders_companies_by_industry_overlap(self, monkeypatch):
+        companies = {
+            "gitlab": {
+                "platform": "greenhouse",
+                "slug": "gitlab",
+                "industries": ["developer-tools", "devops"],
+                "region": "global",
+                "tags": [],
+            },
+            "langchain": {
+                "platform": "ashby",
+                "slug": "langchain",
+                "industries": ["artificial-intelligence", "developer-tools", "agentic-ai"],
+                "region": "global",
+                "tags": [],
+            },
+            "mongodb": {
+                "platform": "greenhouse",
+                "slug": "mongodb",
+                "industries": ["database", "developer-tools"],
+                "region": "global",
+                "tags": [],
+            },
+        }
+        monkeypatch.setattr("joborion.sources.ats_boards.load_companies", lambda: companies)
+        monkeypatch.setattr(
+            "joborion.sources.ats_boards.load_preferences",
+            lambda: {"industries": ["artificial-intelligence", "agentic-ai", "developer-tools"], "sponsorship_ok": True},
+        )
+        provider = AtsBoardsProvider({})
+        selected = provider._select_companies({})
+        assert [c["slug"] for c in selected] == ["langchain", "gitlab", "mongodb"]
+
+    def test_preserves_registry_order_without_industry_filter(self, monkeypatch):
+        companies = {
+            "gitlab": {
+                "platform": "greenhouse",
+                "slug": "gitlab",
+                "industries": ["developer-tools", "devops"],
+                "region": "global",
+                "tags": [],
+            },
+            "langchain": {
+                "platform": "ashby",
+                "slug": "langchain",
+                "industries": ["artificial-intelligence", "developer-tools", "agentic-ai"],
+                "region": "global",
+                "tags": [],
+            },
+        }
+        monkeypatch.setattr("joborion.sources.ats_boards.load_companies", lambda: companies)
+        monkeypatch.setattr(
+            "joborion.sources.ats_boards.load_preferences",
+            lambda: {"industries": [], "sponsorship_ok": True},
+        )
+        provider = AtsBoardsProvider({})
+        selected = provider._select_companies({})
+        assert [c["slug"] for c in selected] == ["gitlab", "langchain"]
+
     def test_drops_sponsorship_companies_when_not_ok(self, monkeypatch):
         companies = {
             "spotify": {"platform": "lever", "slug": "spotify", "industries": [], "region": "global", "tags": []},

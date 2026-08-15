@@ -248,27 +248,33 @@ class AtsBoardsProvider:
         max_companies = _int_cfg(self.cfg, "max_companies", 15)
         pruned = pruned or set()
 
-        selected: list[dict] = []
-        for company in companies.values():
-            if not isinstance(company, dict):
-                continue
+        def keep(company: dict) -> bool:
             if (company.get("name") or company.get("slug")) in pruned:
-                continue
+                return False
             if industries:
                 company_industries = {str(i).lower() for i in company.get("industries", [])}
                 if not company_industries.intersection(industries):
-                    continue
+                    return False
             tags = {str(t).lower() for t in company.get("tags", [])}
             if not sponsorship_ok and "sponsorship" in tags:
-                continue
+                return False
             if filter_locations:
                 region = (company.get("region") or "").lower()
                 if region != "global" and region not in locations:
-                    continue
-            selected.append(company)
-            if len(selected) >= max_companies:
-                break
-        return selected
+                    return False
+            return True
+
+        wanted = set(industries)
+        candidates = [c for c in companies.values() if isinstance(c, dict) and keep(c)]
+        if wanted:
+            # Rank companies that match more of the user's industries first so
+            # max_companies is not filled by peripheral matches (stable sort
+            # preserves registry order among equal overlap counts).
+            candidates.sort(
+                key=lambda c: len(wanted & {str(i).lower() for i in c.get("industries", [])}),
+                reverse=True,
+            )
+        return candidates[:max_companies]
 
     def search(self, intent: dict) -> ProviderResult:
         max_per_company = _int_cfg(self.cfg, "max_per_company", 50)
